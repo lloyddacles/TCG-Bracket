@@ -19,7 +19,7 @@ tournament instantly — no typing. Players can save or print their card.
 
 - **Client** — React 18 + Vite + React Router (+ `qrcode.react`, `html5-qrcode`, `html2canvas`)
 - **Server** — Node/Express (ESM) + SQLite via `@libsql/client`, JWT auth
-- **Tests** — `node --test` (pairing engines + full-tournament integration + QR check-in + bulk ops)
+- **Tests** — `node --test` (pairing engines + full-tournament integration + QR check-in + bulk ops + audit/profile)
 
 ## Getting started
 
@@ -48,7 +48,8 @@ Demo player logins: `player1` … `player12` / `player123`
 
 1. Organizer creates a tournament (game, format, best-of, time rule, draw handling, points).
 2. Players register (or the organizer adds them by username) and can set their deck.
-3. Organizer starts the tournament — round 1 pairings/bracket are generated.
+3. Organizer seeds the field on the **Seeding** tab, then starts the tournament — round 1
+   pairings/bracket are generated.
 4. Players report scores; the organizer approves them.
 5. The app advances winners, drops losers into the losers bracket, and generates the
    next Swiss round automatically once every match in the current round is approved.
@@ -67,6 +68,49 @@ fighter card (clan frame, emblem, title, fighter serial) and can export a PNG or
 
 The QR payload is `TCGBRACKET:<qr_token>`. API: `PUT /api/auth/card`,
 `POST /api/tournaments/:id/scan`.
+
+## Live updates
+
+Tournament pages and the dashboard stay in sync automatically: whenever anything changes
+(a player checks in, a score is approved, a bracket advances, a tournament is created or
+deleted), the server pushes a Server-Sent Events message and the client refetches. There is
+a small **Live** indicator with the last-synced time, and if streaming is unavailable the
+client silently falls back to polling.
+
+API: `GET /api/tournaments/events` (all tournaments, for the dashboard) and
+`GET /api/tournaments/:id/events` (a single event). Both are auth-guarded SSE streams, so the
+client reads them with `fetch` rather than `EventSource`.
+
+## Seeding & brackets
+
+The **Seeding** tab lets an organizer order the field before the tournament starts:
+
+- drag-free **move up/down** reordering with a single "Save seed order" action
+- **Shuffle** for a random draw, **By registration** to reset to sign-up order
+- seeds are locked once the tournament starts; they drive elimination bracket placement and
+  act as the final Swiss tiebreaker
+
+API: `POST /api/tournaments/:id/seeds` with either `{ playerIds: [..] }` or `{ mode: "random" | "registration" }`.
+
+## Match history & audit log
+
+Every meaningful action is stored in an append-only `match_events` table (with a denormalized
+actor name so history survives account deletion) and shown newest-first in the **History**
+tab. Actions include started, reported, approved, reset, bye, round advanced, grand-final
+reset, seeds set, registration, check-in and roster edits.
+
+API: `GET /api/tournaments/:id/history`. Organizer identities are only included for admins;
+players see the same feed without the actor.
+
+## Player profiles & decklists
+
+Each player has a profile with aggregate stats (tournaments, match record, games, win rate,
+1st-place and podium finishes), full tournament history with placement, and a recent match
+feed. Players can save a **signature deck** (name + decklist) from their own profile, which
+is shown on their public profile.
+
+API: `GET /api/profile`, `GET /api/profile/:id`, `PUT /api/profile/deck`. Player names in
+standings, rosters and the players list link straight to the profile.
 
 ## Bulk tools
 
@@ -96,13 +140,15 @@ hosted libSQL database.
 server/
   src/
     pairing/        swiss, single/double elim, round robin (pure functions)
-    services/       users, tournaments, standings, engine (results + advancement), bulk
-    routes/         auth, users, games, tournaments, matches, public
-  test/             pairing + engine integration + qr + bulk tests
+    services/       users, tournaments, standings, engine (results + advancement), bulk,
+                    events (SSE hub), log (audit trail), profile
+    routes/         auth, users, games, tournaments, matches, public, profile
+  test/             pairing + engine integration + qr + bulk + profile/audit tests
 client/
   src/
-    pages/          dashboard, create, detail, public, print, users, card studio, scan desk
+    pages/          dashboard, create, detail, public, print, users, card studio, scan desk, profile
     components/     layout, bracket, standings, modals, fighter QR card, bulk UI
     bulk.js         CSV parse/serialize/download helpers
+    live.js         fetch-based SSE hook (fallback polling)
     card-themes.js  clan frame themes for the QR fighter cards
 ```

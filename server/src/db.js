@@ -67,6 +67,8 @@ const SCHEMA = `
     card_title TEXT,
     active INTEGER NOT NULL DEFAULT 1,
     must_change_password INTEGER NOT NULL DEFAULT 0,
+    deck_name TEXT,
+    deck_list TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -159,6 +161,22 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_matches_tournament ON matches(tournament_id);
   CREATE INDEX IF NOT EXISTS idx_matches_round ON matches(tournament_id, round);
 
+  CREATE TABLE IF NOT EXISTS match_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    match_id INTEGER REFERENCES matches(id) ON DELETE CASCADE,
+    round INTEGER,
+    action TEXT NOT NULL,
+    actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    actor_name TEXT,
+    summary TEXT,
+    details TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_match_events_tournament ON match_events(tournament_id, id);
+  CREATE INDEX IF NOT EXISTS idx_match_events_match ON match_events(match_id);
+
   CREATE TABLE IF NOT EXISTS login_attempts (
     username TEXT PRIMARY KEY,
     failed_count INTEGER NOT NULL DEFAULT 0,
@@ -193,4 +211,6 @@ async function doInit() {
   await ensureColumn('users', 'qr_token', 'qr_token TEXT');
   await ensureColumn('users', 'card_theme', "card_theme TEXT NOT NULL DEFAULT 'kagero'");
   await ensureColumn('users', 'card_title', 'card_title TEXT');
+  await ensureColumn('users', 'deck_name', 'deck_name TEXT');
+  await ensureColumn('users', 'deck_list', 'deck_list TEXT');
 }

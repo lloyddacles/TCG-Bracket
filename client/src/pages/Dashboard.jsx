@@ -6,6 +6,7 @@ import Spinner from '../components/Spinner.jsx';
 import ImportDialog from '../components/ImportDialog.jsx';
 import BulkBar, { SelectAllBox, useSelection } from '../components/bulk-ui.jsx';
 import { downloadCSV } from '../bulk.js';
+import { useLive } from '../live.js';
 import { FORMAT_LABELS, STATUS_LABELS, statusClass, formatDate } from '../format.js';
 
 const FILTERS = [
@@ -63,21 +64,26 @@ export default function Dashboard() {
 
   const selection = useSelection();
 
-  const load = () => {
-    setLoading(true);
+  const load = (silent = false) => {
+    if (!silent) setLoading(true);
     setError('');
     const params = FILTERS.find((f) => f.key === filter)?.params || {};
     return api
       .getTournaments(params)
       .then((data) => setTournaments(data.tournaments))
       .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!silent) setLoading(false);
+      });
   };
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
+
+  // Refresh the list whenever any tournament changes elsewhere.
+  useLive({ path: '/api/tournaments/events', onEvent: () => load(true) });
 
   useEffect(() => {
     if (isAdmin) api.getGames().then((d) => setGames(d.games || [])).catch(() => {});

@@ -1,4 +1,6 @@
-export default function StandingsTable({ standings, showDeck = true }) {
+import { Link } from 'react-router-dom';
+
+export default function StandingsTable({ standings, showDeck = true, linkProfiles = false }) {
   if (!standings || standings.length === 0) {
     return <p className="muted">No standings yet.</p>;
   }
@@ -24,7 +26,13 @@ export default function StandingsTable({ standings, showDeck = true }) {
             <tr key={s.id} className={s.dropped ? 'row-dropped' : ''}>
               <td className="rank-col">{s.rank}</td>
               <td>
-                <span className="player-name">{s.name}</span>
+                {linkProfiles && s.userId ? (
+                  <Link className="player-name player-link" to={`/players/${s.userId}`}>
+                    {s.name}
+                  </Link>
+                ) : (
+                  <span className="player-name">{s.name}</span>
+                )}
                 {showDeck && s.deck && <span className="deck-tag">{s.deck}</span>}
                 {s.dropped && <span className="tag tag-muted">dropped</span>}
                 {s.eliminated && <span className="tag tag-muted">eliminated</span>}

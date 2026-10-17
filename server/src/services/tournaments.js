@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid';
 import { get, all, run } from '../db.js';
 import { computeStandings } from './standings.js';
 import { getUserByQrToken } from './users.js';
+import { logEvent, ACTIONS } from './log.js';
 
 const FORMATS = ['swiss', 'single_elim', 'double_elim', 'round_robin'];
 const TIME_RULES = ['sudden_death', 'extra_turns', 'draw', 'none'];
@@ -262,6 +263,75 @@ export async function removePlayer(playerId) {
   }
   await run('DELETE FROM tournament_players WHERE id = ?', [playerId]);
   return { ok: true };
+}
+
+function shuffle(list) {
+  const arr = [...list];
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// Set the bracket seed order (1..N) before a tournament starts. Accepts an
+// explicit ordered list of player ids, or a `mode` of `random` / `registration`.
+export async function setSeeds(tournamentId, { playerIds = null, mode = null, actorId = null } = {}) {
+  const t = await getTournament(tournamentId);
+  if (!t) return { ok: false, status: 404, error: 'Tournament not found' };
+  if (!['draft', 'registration'].includes(t.status)) {
+    return { ok: false, status: 400, error: 'Seeding can only be changed before the tournament starts' };
+  }
+  const players = (await listPlayers(tournamentId)).filter((p) => !Number(p.is_bye));
+  if (players.length < 2) return { ok: false, status: 400, error: 'At least 2 players are required' };
+
+  let ordered;
+  if (Array.isArray(playerIds) && playerIds.length) {
+    const roster = players.map((p) => Number(p.id));
+    const seen = new Set();
+    ordered = [];
+    for (const raw of playerIds) {
+      const id = Number(raw);
+      if (roster.includes(id) && !seen.has(id)) {
+        seen.add(id);
+        ordered.push(id);
+      }
+    }
+    // Anyone left out keeps their place after the explicit order.
+    for (const id of roster) if (!seen.has(id)) ordered.push(id);
+  } else if (mode === 'random') {
+    ordered = shuffle(players.map((p) => Number(p.id)));
+  } else if (mode === 'registration') {
+    ordered = [...players]
+      .sort(
+        (a, b) =>
+          String(a.registered_at || '').localeCompare(String(b.registered_at || '')) ||
+          Number(a.id) - Number(b.id)
+      )
+      .map((p) => Number(p.id));
+  } else {
+    return {
+      ok: false,
+      status: 400,
+      error: 'Provide an ordered playerIds list or a mode of "random" / "registration"',
+    };
+  }
+
+  for (let i = 0; i < ordered.length; i += 1) {
+    await run('UPDATE tournament_players SET seed = ? WHERE id = ? AND tournament_id = ?', [
+      i + 1,
+      ordered[i],
+      tournamentId,
+    ]);
+  }
+  await logEvent({
+    tournamentId,
+    action: ACTIONS.SEEDS_SET,
+    actorId,
+    summary: `Seeded ${ordered.length} player${ordered.length === 1 ? '' : 's'}${mode ? ` (${mode})` : ''}`,
+    details: { order: ordered, mode },
+  });
+  return { ok: true, order: ordered, count: ordered.length };
 }
 
 function championOf(t, matches, standings) {

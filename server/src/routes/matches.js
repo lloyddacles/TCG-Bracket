@@ -32,7 +32,7 @@ router.post('/:id/result', requireRole('admin'), async (req, res) => {
 });
 
 router.post('/:id/reset', requireRole('admin'), async (req, res) => {
-  const result = await resetReport(Number(req.params.id));
+  const result = await resetReport(Number(req.params.id), req.user.id);
   if (!result.ok) return res.status(result.status).json({ error: result.error });
   await respondWithBundle(res, Number(req.params.id));
 });

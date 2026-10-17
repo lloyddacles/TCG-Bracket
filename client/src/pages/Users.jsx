@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import Modal from '../components/Modal.jsx';
 import Spinner from '../components/Spinner.jsx';
@@ -209,7 +210,11 @@ export default function Users() {
                   <td className="check-col">
                     <RowCheck row={u} selection={selection} />
                   </td>
-                  <td>{u.name}</td>
+                  <td>
+                    <Link className="player-link" to={`/players/${u.id}`}>
+                      {u.name}
+                    </Link>
+                  </td>
                   <td className="muted">@{u.username}</td>
                   <td>
                     <select value={u.role} onChange={(e) => setRole(u, e.target.value)}>

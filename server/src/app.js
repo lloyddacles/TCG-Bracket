@@ -10,6 +10,7 @@ import gameRoutes from './routes/games.js';
 import tournamentRoutes from './routes/tournaments.js';
 import matchRoutes from './routes/matches.js';
 import publicRoutes from './routes/public.js';
+import profileRoutes from './routes/profile.js';
 
 const allowedOrigins = (config.clientOrigin || '')
   .split(',')
@@ -36,6 +37,7 @@ app.use('/api/games', gameRoutes);
 app.use('/api/tournaments', tournamentRoutes);
 app.use('/api/matches', matchRoutes);
 app.use('/api/public', publicRoutes);
+app.use('/api/profile', profileRoutes);
 
 app.use((err, req, res, next) => {
   const status = err.status || err.statusCode || 500;

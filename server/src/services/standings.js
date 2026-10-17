@@ -6,6 +6,7 @@ const MWP_FLOOR = 1 / 3;
 function blankStat(p) {
   return {
     id: p.id,
+    userId: p.user_id ?? null,
     name: p.display_name || p.name || p.user_name || `Player ${p.id}`,
     deck: p.deck || null,
     seed: p.seed ?? null,

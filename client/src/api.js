@@ -61,6 +61,8 @@ export const api = {
   getTournaments: (params = {}) =>
     request(`/tournaments?${new URLSearchParams(params).toString()}`),
   getTournament: (id) => request(`/tournaments/${id}`),
+  getTournamentHistory: (id) => request(`/tournaments/${id}/history`),
+  setTournamentSeeds: (id, payload) => request(`/tournaments/${id}/seeds`, { method: 'POST', body: payload }),
   createTournament: (data) => request('/tournaments', { method: 'POST', body: data }),
   updateTournament: (id, data) => request(`/tournaments/${id}`, { method: 'PUT', body: data }),
   deleteTournament: (id) => request(`/tournaments/${id}`, { method: 'DELETE' }),
@@ -86,6 +88,10 @@ export const api = {
   updateUser: (id, data) => request(`/users/${id}`, { method: 'PUT', body: data }),
   deleteUser: (id) => request(`/users/${id}`, { method: 'DELETE' }),
   bulkUsers: (payload) => request('/users/bulk', { method: 'POST', body: payload }),
+
+  getProfile: () => request('/profile'),
+  getPlayerProfile: (id) => request(`/profile/${id}`),
+  saveDeck: (data) => request('/profile/deck', { method: 'PUT', body: data }),
 
   publicTournament: (slug) => request(`/public/${slug}`, { auth: false }),
 };

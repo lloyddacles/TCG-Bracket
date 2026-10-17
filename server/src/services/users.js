@@ -30,6 +30,8 @@ function publicUser(row) {
     qrToken: row.qr_token,
     cardTheme: row.card_theme || 'kagero',
     cardTitle: row.card_title || null,
+    deckName: row.deck_name || null,
+    deckList: row.deck_list || null,
     createdAt: row.created_at,
   };
 }

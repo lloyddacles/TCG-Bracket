@@ -1,6 +1,7 @@
 import { get, all, run } from '../db.js';
 import { getTournament, listPlayers } from './tournaments.js';
 import { toSwissPlayers, computeStandings } from './standings.js';
+import { logEvent, emitChange, ACTIONS } from './log.js';
 import { pairSwiss } from '../pairing/swiss.js';
 import { buildRoundRobin } from '../pairing/roundRobin.js';
 import { buildSingleElim } from '../pairing/singleElim.js';
@@ -10,6 +11,28 @@ const BYE = 'BYE';
 
 function isByeValue(v) {
   return v === BYE;
+}
+
+// Human label for a slot value using an already-loaded roster.
+function playerLabel(players, id) {
+  if (id == null || isByeValue(id)) return 'BYE';
+  const p = players.find((x) => Number(x.id) === Number(id));
+  if (!p) return `Player ${id}`;
+  return p.display_name || p.user_name || p.name || `Player ${id}`;
+}
+
+async function loadLabels(ids) {
+  const unique = [...new Set(ids.filter((id) => id != null && !isByeValue(id)).map(Number))];
+  if (!unique.length) return new Map();
+  const placeholders = unique.map(() => '?').join(', ');
+  const rows = await all(
+    `SELECT tp.id, tp.display_name, u.name AS user_name FROM tournament_players tp
+     LEFT JOIN users u ON u.id = tp.user_id WHERE tp.id IN (${placeholders})`,
+    unique
+  );
+  const map = new Map();
+  for (const r of rows) map.set(Number(r.id), r.display_name || r.user_name || `Player ${r.id}`);
+  return map;
 }
 
 // --- match generation -------------------------------------------------------
@@ -101,7 +124,7 @@ async function swissRoundDefs(tournament, round) {
 
 // --- start ------------------------------------------------------------------
 
-export async function startTournament(id) {
+export async function startTournament(id, actorId = null) {
   const t = await getTournament(id);
   if (!t) return { ok: false, status: 404, error: 'Tournament not found' };
   if (t.status === 'active') return { ok: false, status: 400, error: 'Tournament already started' };
@@ -158,8 +181,16 @@ export async function startTournament(id) {
   }
 
   await run("UPDATE tournaments SET status = 'active', started_at = datetime('now') WHERE id = ?", [id]);
-  await autoResolve(id);
-  await afterResolution(id);
+  await logEvent({
+    tournamentId: id,
+    round: 1,
+    action: ACTIONS.STARTED,
+    actorId,
+    summary: `Started with ${players.length} player${players.length === 1 ? '' : 's'}`,
+    details: { format: t.format, seedOrder: players.map((p) => Number(p.id)) },
+  });
+  await autoResolve(id, actorId);
+  await afterResolution(id, actorId);
   return { ok: true };
 }
 
@@ -193,9 +224,10 @@ async function propagate(match, winnerValue, loserValue) {
 }
 
 // Resolve any match whose outcome is forced because a slot is a bye.
-export async function autoResolve(tournamentId) {
+export async function autoResolve(tournamentId, actorId = null) {
   let changed = true;
   let guard = 0;
+  const resolved = [];
   while (changed && guard < 1000) {
     guard += 1;
     changed = false;
@@ -225,8 +257,27 @@ export async function autoResolve(tournamentId) {
         [winnerId, m.id]
       );
       await propagate(m, winnerValue, BYE);
+      resolved.push({ match: m, winnerId });
       changed = true;
     }
+  }
+
+  if (resolved.length) {
+    const labels = await loadLabels(resolved.flatMap((r) => [r.match.player1_id, r.match.player2_id]));
+    for (const r of resolved) {
+      const label = r.winnerId != null ? labels.get(Number(r.winnerId)) || `Player ${r.winnerId}` : null;
+      await logEvent({
+        tournamentId,
+        matchId: r.match.id,
+        round: r.match.round,
+        action: ACTIONS.BYE,
+        actorId,
+        summary: label ? `Bye — ${label} advances` : 'Bye — both slots empty',
+        details: { bracket: r.match.bracket },
+        silent: true,
+      });
+    }
+    emitChange(tournamentId, ACTIONS.BYE);
   }
 }
 
@@ -312,6 +363,15 @@ export async function reportMatch(matchId, userId, { score1, score2 }) {
     "UPDATE matches SET score1 = ?, score2 = ?, status = 'reported', reported_by = ?, reported_at = datetime('now') WHERE id = ?",
     [Number(score1), Number(score2), userId, matchId]
   );
+  await logEvent({
+    tournamentId: match.tournament_id,
+    matchId,
+    round: match.round,
+    action: ACTIONS.REPORTED,
+    actorId: userId,
+    summary: `${playerLabel(players, match.player1_id)} ${score1}-${score2} ${playerLabel(players, match.player2_id)} reported`,
+    details: { score1: Number(score1), score2: Number(score2) },
+  });
   return { ok: true, match: await get('SELECT * FROM matches WHERE id = ?', [matchId]) };
 }
 
@@ -339,7 +399,19 @@ export async function approveMatch(matchId, adminId, { score1, score2 } = {}) {
     scores: { score1: s1, score2: s2 },
   });
   await finalizeByAdmin(matchId, adminId);
-  await afterResolution(tournament.id);
+  const labels = await loadLabels([match.player1_id, match.player2_id]);
+  await logEvent({
+    tournamentId: tournament.id,
+    matchId,
+    round: match.round,
+    action: ACTIONS.APPROVED,
+    actorId: adminId,
+    summary: `Approved ${labels.get(Number(match.player1_id)) || '—'} ${s1}-${s2} ${
+      labels.get(Number(match.player2_id)) || '—'
+    }`,
+    details: { score1: s1, score2: s2, draw: winSlot === null },
+  });
+  await afterResolution(tournament.id, adminId);
   return { ok: true };
 }
 
@@ -369,7 +441,18 @@ export async function setMatchResult(matchId, adminId, { score1, score2, winnerI
     }
     await finalizeMatch(tournament, match, winSlot, { scores: {} });
     await finalizeByAdmin(matchId, adminId);
-    await afterResolution(tournament.id);
+    const walkoverLabels = await loadLabels([winnerId, match.player1_id, match.player2_id]);
+    const walkoverWinner = walkoverLabels.get(Number(winnerId));
+    await logEvent({
+      tournamentId: tournament.id,
+      matchId,
+      round: match.round,
+      action: ACTIONS.RESULT_SET,
+      actorId: adminId,
+      summary: `Set winner — ${walkoverWinner || '—'} advances (no score)`,
+      details: { winnerId: Number(winnerId), walkover: true },
+    });
+    await afterResolution(tournament.id, adminId);
     return { ok: true };
   }
 
@@ -380,11 +463,23 @@ export async function setMatchResult(matchId, adminId, { score1, score2, winnerI
   const winSlot = winningSlot(match, s1, s2);
   await finalizeMatch(tournament, match, winSlot, { draw: winSlot === null, scores: { score1: s1, score2: s2 } });
   await finalizeByAdmin(matchId, adminId);
-  await afterResolution(tournament.id);
+  const labels = await loadLabels([match.player1_id, match.player2_id]);
+  await logEvent({
+    tournamentId: tournament.id,
+    matchId,
+    round: match.round,
+    action: ACTIONS.RESULT_SET,
+    actorId: adminId,
+    summary: `Recorded ${labels.get(Number(match.player1_id)) || '—'} ${s1}-${s2} ${
+      labels.get(Number(match.player2_id)) || '—'
+    }`,
+    details: { score1: s1, score2: s2, draw: winSlot === null },
+  });
+  await afterResolution(tournament.id, adminId);
   return { ok: true };
 }
 
-export async function resetReport(matchId) {
+export async function resetReport(matchId, actorId = null) {
   const match = await get('SELECT * FROM matches WHERE id = ?', [matchId]);
   if (!match) return { ok: false, status: 404, error: 'Match not found' };
   if (match.status !== 'reported') {
@@ -394,6 +489,18 @@ export async function resetReport(matchId) {
     "UPDATE matches SET score1 = NULL, score2 = NULL, status = 'pending', reported_by = NULL, reported_at = NULL WHERE id = ?",
     [matchId]
   );
+  const labels = await loadLabels([match.player1_id, match.player2_id]);
+  await logEvent({
+    tournamentId: match.tournament_id,
+    matchId,
+    round: match.round,
+    action: ACTIONS.RESET,
+    actorId,
+    summary: `Cleared result ${labels.get(Number(match.player1_id)) || '—'} ${match.score1 ?? '–'}-${
+      match.score2 ?? '–'
+    } ${labels.get(Number(match.player2_id)) || '—'}`,
+    details: { previousScore1: match.score1, previousScore2: match.score2 },
+  });
   return { ok: true };
 }
 
@@ -414,15 +521,31 @@ async function incompleteCount(tournamentId, { round = null, bracket = null } = 
   return Number(row.c);
 }
 
-async function completeTournament(id) {
+async function completeTournament(id, actorId = null) {
   await run(
     "UPDATE tournaments SET status = 'completed', completed_at = datetime('now') WHERE id = ?",
     [id]
   );
+  const t = await getTournament(id);
+  const players = (await listPlayers(id)).filter((p) => !Number(p.is_bye));
+  const standings = await computeStandings({
+    players,
+    matches: await all('SELECT * FROM matches WHERE tournament_id = ?', [id]),
+    points: { win: t.points_win, draw: t.points_draw, loss: t.points_loss },
+  });
+  const winner = standings.find((s) => s.rank === 1) || standings[0];
+  await logEvent({
+    tournamentId: id,
+    round: t.current_round || null,
+    action: ACTIONS.COMPLETED,
+    actorId,
+    summary: winner ? `Completed — ${winner.name} takes 1st` : 'Completed',
+    details: winner ? { champion: { id: winner.id, name: winner.name } } : null,
+  });
 }
 
-export async function afterResolution(tournamentId) {
-  await autoResolve(tournamentId);
+export async function afterResolution(tournamentId, actorId = null) {
+  await autoResolve(tournamentId, actorId);
   const t = await getTournament(tournamentId);
   if (!t || t.status !== 'active') return;
 
@@ -433,16 +556,24 @@ export async function afterResolution(tournamentId) {
         const next = t.current_round + 1;
         await generateStructure(tournamentId, await swissRoundDefs(t, next));
         await run('UPDATE tournaments SET current_round = ? WHERE id = ?', [next, tournamentId]);
-        await autoResolve(tournamentId);
+        await logEvent({
+          tournamentId,
+          round: next,
+          action: ACTIONS.ROUND_ADVANCED,
+          actorId,
+          summary: `Round ${t.current_round} complete — round ${next} pairings generated`,
+          details: { from: t.current_round, to: next },
+        });
+        await autoResolve(tournamentId, actorId);
       } else {
-        await completeTournament(tournamentId);
+        await completeTournament(tournamentId, actorId);
       }
     }
     return;
   }
 
   if (t.format === 'round_robin') {
-    if ((await incompleteCount(tournamentId)) === 0) await completeTournament(tournamentId);
+    if ((await incompleteCount(tournamentId)) === 0) await completeTournament(tournamentId, actorId);
     return;
   }
 
@@ -451,14 +582,14 @@ export async function afterResolution(tournamentId) {
       "SELECT * FROM matches WHERE tournament_id = ? AND bracket = 'main' ORDER BY round DESC, match_index ASC LIMIT 1",
       [tournamentId]
     );
-    if (final && final.status === 'approved') await completeTournament(tournamentId);
+    if (final && final.status === 'approved') await completeTournament(tournamentId, actorId);
     return;
   }
 
   if (t.format === 'double_elim') {
     const gf2 = await get("SELECT * FROM matches WHERE tournament_id = ? AND slot_key = 'GF2'", [tournamentId]);
     if (gf2 && gf2.status === 'approved') {
-      await completeTournament(tournamentId);
+      await completeTournament(tournamentId, actorId);
       return;
     }
     const gf1 = await get("SELECT * FROM matches WHERE tournament_id = ? AND slot_key = 'GF1'", [tournamentId]);
@@ -471,8 +602,17 @@ export async function afterResolution(tournamentId) {
            WHERE id = ?`,
           [gf1.player1_id, gf1.player2_id, gf2.id]
         );
+        await logEvent({
+          tournamentId,
+          matchId: gf2.id,
+          round: gf2.round,
+          action: ACTIONS.GF_RESET,
+          actorId,
+          summary: 'Grand final reset — losers-bracket player forced game 2',
+          details: { matchId: gf2.id },
+        });
       } else {
-        await completeTournament(tournamentId);
+        await completeTournament(tournamentId, actorId);
       }
     }
   }

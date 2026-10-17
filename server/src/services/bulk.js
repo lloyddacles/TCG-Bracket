@@ -18,6 +18,7 @@ import {
   getTournamentBundle,
 } from './tournaments.js';
 import { setMatchResult, approveMatch, resetReport } from './engine.js';
+import { emitChange, logEvent, ACTIONS } from './log.js';
 
 function addError(summary, ref, message) {
   summary.errors.push({ ref: String(ref), message });
@@ -105,7 +106,11 @@ export async function bulkUsers({ create = [], update = [], remove = [], deactiv
 
 /* -------------------------- Tournament players --------------------------- */
 
-export async function bulkTournamentPlayers(tournamentId, { add = [], update = [], remove = [] }) {
+export async function bulkTournamentPlayers(
+  tournamentId,
+  { add = [], update = [], remove = [] },
+  actorId = null
+) {
   const t = await getTournament(tournamentId);
   if (!t) return { ok: false, status: 404, error: 'Tournament not found' };
   const summary = { added: 0, updated: 0, removed: 0, skipped: 0, errors: [] };
@@ -177,6 +182,18 @@ export async function bulkTournamentPlayers(tournamentId, { add = [], update = [
     }
   }
 
+  if (summary.added || summary.removed) {
+    await logEvent({
+      tournamentId,
+      action: summary.added ? ACTIONS.PLAYER_ADDED : ACTIONS.PLAYER_REMOVED,
+      actorId,
+      summary: `Roster bulk update — ${summary.added} added, ${summary.updated} updated, ${summary.removed} removed`,
+      details: { added: summary.added, updated: summary.updated, removed: summary.removed },
+    });
+  } else if (summary.updated) {
+    emitChange(tournamentId, 'players_bulk_updated');
+  }
+
   return { ok: true, summary, bundle: await getTournamentBundle(tournamentId) };
 }
 
@@ -227,11 +244,14 @@ export async function duplicateTournament(id, userId, { withPlayers = true, name
 
 export async function bulkTournaments({ create = [], duplicate = [], remove = [], archive = [] }, userId) {
   const summary = { created: 0, duplicated: 0, updated: 0, removed: 0, skipped: 0, errors: [] };
+  const touched = new Set();
 
   for (const [i, row] of (create || []).entries()) {
     const res = await createTournament(row || {}, userId);
-    if (res.ok) summary.created += 1;
-    else {
+    if (res.ok) {
+      summary.created += 1;
+      if (res.tournament?.id) touched.add(Number(res.tournament.id));
+    } else {
       summary.skipped += 1;
       addError(summary, row?.name || `row ${i + 1}`, res.error);
     }
@@ -239,8 +259,10 @@ export async function bulkTournaments({ create = [], duplicate = [], remove = []
 
   for (const id of duplicate || []) {
     const res = await duplicateTournament(Number(id), userId);
-    if (res.ok) summary.duplicated += 1;
-    else {
+    if (res.ok) {
+      summary.duplicated += 1;
+      if (res.tournament?.id) touched.add(Number(res.tournament.id));
+    } else {
       summary.skipped += 1;
       addError(summary, `tournament ${id}`, res.error);
     }
@@ -248,8 +270,10 @@ export async function bulkTournaments({ create = [], duplicate = [], remove = []
 
   for (const id of archive || []) {
     const res = await updateTournament(Number(id), { status: 'completed' });
-    if (res.ok) summary.updated += 1;
-    else {
+    if (res.ok) {
+      summary.updated += 1;
+      touched.add(Number(id));
+    } else {
       summary.skipped += 1;
       addError(summary, `tournament ${id}`, res.error);
     }
@@ -257,12 +281,16 @@ export async function bulkTournaments({ create = [], duplicate = [], remove = []
 
   for (const id of remove || []) {
     const res = await deleteTournament(Number(id));
-    if (res.ok) summary.removed += 1;
-    else {
+    if (res.ok) {
+      summary.removed += 1;
+      touched.add(Number(id));
+    } else {
       summary.skipped += 1;
       addError(summary, `tournament ${id}`, res.error);
     }
   }
+
+  for (const id of touched) emitChange(id, 'bulk');
 
   return { ok: true, summary };
 }
@@ -318,12 +346,16 @@ export async function bulkMatches(tournamentId, { results = [], approve = [], ap
   }
 
   for (const id of reset || []) {
-    const res = await resetReport(Number(id));
+    const res = await resetReport(Number(id), userId);
     if (res.ok) summary.reset += 1;
     else {
       summary.skipped += 1;
       addError(summary, `match ${id}`, res.error);
     }
+  }
+
+  if (summary.recorded || summary.approved || summary.reset) {
+    emitChange(tournamentId, 'matches_bulk');
   }
 
   return { ok: true, summary, bundle: await getTournamentBundle(tournamentId) };

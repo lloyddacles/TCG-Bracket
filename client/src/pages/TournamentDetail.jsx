@@ -9,9 +9,10 @@ import StandingsTable from '../components/StandingsTable.jsx';
 import ImportDialog from '../components/ImportDialog.jsx';
 import BulkBar, { RowCheck, SelectAllBox, useSelection } from '../components/bulk-ui.jsx';
 import { downloadCSV } from '../bulk.js';
+import { useLive } from '../live.js';
 import { FORMAT_LABELS, STATUS_LABELS, TIME_RULE_LABELS, statusClass, formatDate } from '../format.js';
 
-const TABS = ['Overview', 'Players', 'Rounds', 'Bracket', 'Standings', 'Settings'];
+const TABS = ['Overview', 'Players', 'Rounds', 'Bracket', 'Standings', 'History', 'Settings'];
 
 export default function TournamentDetail() {
   const { id } = useParams();
@@ -22,11 +23,13 @@ export default function TournamentDetail() {
   const [error, setError] = useState('');
   const [tab, setTab] = useState('Overview');
   const [notice, setNotice] = useState('');
+  const [syncedAt, setSyncedAt] = useState(null);
 
   const load = useCallback(async () => {
     try {
       const data = await api.getTournament(id);
       setBundle(data);
+      setSyncedAt(Date.now());
     } catch (err) {
       setError(err.message);
     } finally {
@@ -37,6 +40,9 @@ export default function TournamentDetail() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Keep the bracket in sync with changes made by anyone else.
+  useLive({ path: `/api/tournaments/${id}/events`, onEvent: load });
 
   const apply = (data) => {
     const next = data && data.bundle ? data.bundle : data;
@@ -89,6 +95,10 @@ export default function TournamentDetail() {
           </div>
         </div>
         <div className="row-actions">
+          <span className="live-badge" title="Refreshes automatically when anything changes">
+            <span className="live-dot" />
+            Live{syncedAt ? ` · ${new Date(syncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
+          </span>
           <button className="btn btn-ghost" onClick={load}>
             Refresh
           </button>
@@ -176,6 +186,16 @@ export default function TournamentDetail() {
         />
       )}
 
+      {tab === 'Seeding' && (
+        <SeedingTab
+          t={t}
+          players={players}
+          isAdmin={isAdmin}
+          onSave={(playerIds) => guard(async () => apply(await api.setTournamentSeeds(t.id, { playerIds })))}
+          onMode={(mode) => guard(async () => apply(await api.setTournamentSeeds(t.id, { mode })))}
+        />
+      )}
+
       {tab === 'Rounds' && (
         <RoundsTab
           t={t}
@@ -193,9 +213,11 @@ export default function TournamentDetail() {
       {tab === 'Standings' && (
         <div className="card">
           <h3>Standings</h3>
-          <StandingsTable standings={standings} />
+          <StandingsTable standings={standings} linkProfiles />
         </div>
       )}
+
+      {tab === 'History' && <HistoryTab id={t.id} isAdmin={isAdmin} refreshKey={syncedAt} />}
 
       {tab === 'Settings' && (
         isAdmin ? (
@@ -508,7 +530,15 @@ function PlayersTab({ t, players, myPlayer, user, isAdmin, onRegister, onUnregis
                         p.seed || '—'
                       )}
                     </td>
-                    <td>{p.name}</td>
+                    <td>
+                      {p.user_id ? (
+                        <Link className="player-link" to={`/players/${p.user_id}`}>
+                          {p.name}
+                        </Link>
+                      ) : (
+                        p.name
+                      )}
+                    </td>
                     <td>
                       {canEdit ? (
                         <input
@@ -602,6 +632,234 @@ function PlayerEditModal({ player, onClose, onSave }) {
 }
 
 /* -------------------------------- Rounds --------------------------------- */
+
+/* ------------------------------ Seeding tab ------------------------------- */
+
+function seedOrderFrom(players) {
+  const key = (p) => (p.seed == null ? Number.MAX_SAFE_INTEGER : Number(p.seed));
+  return [...players.filter((p) => !Number(p.is_bye))]
+    .sort((a, b) => key(a) - key(b) || Number(a.id) - Number(b.id))
+    .map((p) => Number(p.id));
+}
+
+function SeedingTab({ t, players, isAdmin, onSave, onMode }) {
+  const real = players.filter((p) => !Number(p.is_bye));
+  const seedable = isAdmin && ['draft', 'registration'].includes(t.status);
+  const [order, setOrder] = useState(() => seedOrderFrom(players));
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // Follow the server unless the organizer has unsaved reordering in progress.
+  useEffect(() => {
+    if (!dirty) setOrder(seedOrderFrom(players));
+  }, [players, dirty]);
+
+  const nameById = useMemo(() => {
+    const map = new Map();
+    for (const p of real) map.set(Number(p.id), p.name || `Player ${p.id}`);
+    return map;
+  }, [real]);
+
+  const move = (index, delta) => {
+    const target = index + delta;
+    if (target < 0 || target >= order.length) return;
+    const next = [...order];
+    [next[index], next[target]] = [next[target], next[index]];
+    setOrder(next);
+    setDirty(true);
+  };
+
+  // onSave/onMode are already guarded by the parent; they resolve to null on
+  // error, so keep the pending reorder in that case.
+  const run = async (fn) => {
+    setBusy(true);
+    const res = await fn();
+    if (res !== null) setDirty(false);
+    setBusy(false);
+  };
+
+  return (
+    <div className="stack">
+      <div className="card stack">
+        <div className="spread">
+          <div>
+            <h3>Bracket seeding</h3>
+            <p className="muted small">
+              Seeds decide bracket placement for elimination formats and break ties in Swiss. Change them
+              before starting — once the tournament is running they are locked.
+            </p>
+          </div>
+          {seedable && (
+            <div className="row-actions">
+              <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => run(() => onMode('random'))}>
+                Shuffle
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={busy}
+                onClick={() => run(() => onMode('registration'))}
+              >
+                By registration
+              </button>
+            </div>
+          )}
+        </div>
+
+        {dirty && (
+          <div className="bulk-bar edit-bar">
+            <strong>Unsaved seed order</strong>
+            <div className="bulk-actions">
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={busy}
+                onClick={() => run(() => onSave(order))}
+              >
+                {busy ? 'Saving…' : 'Save seed order'}
+              </button>
+              <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setDirty(false)}>
+                Discard
+              </button>
+            </div>
+          </div>
+        )}
+
+        <ol className="seed-list">
+          {order.map((pid, index) => (
+            <li key={pid} className="seed-row">
+              <span className="seed-rank">{index + 1}</span>
+              <span className="seed-name">{nameById.get(pid) || `Player ${pid}`}</span>
+              <span className="muted small">
+                {real.find((p) => Number(p.id) === Number(pid))?.deck || ''}
+              </span>
+              {seedable && (
+                <span className="seed-move">
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    aria-label="Move up"
+                    disabled={busy || index === 0}
+                    onClick={() => move(index, -1)}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    aria-label="Move down"
+                    disabled={busy || index === order.length - 1}
+                    onClick={() => move(index, 1)}
+                  >
+                    ↓
+                  </button>
+                </span>
+              )}
+            </li>
+          ))}
+        </ol>
+
+        {!seedable && (
+          <p className="muted small">
+            {isAdmin ? 'Seeding is locked once the tournament has started.' : 'Seeds are managed by the organizer.'}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------ History tab ------------------------------ */
+
+const ACTION_LABELS = {
+  started: 'Started',
+  completed: 'Completed',
+  reported: 'Reported',
+  approved: 'Approved',
+  result_set: 'Result',
+  reset: 'Reset',
+  bye: 'Bye',
+  round_advanced: 'Round',
+  gf_reset: 'GF reset',
+  seeds_set: 'Seeding',
+  registered: 'Registered',
+  unregistered: 'Unregistered',
+  checked_in: 'Check-in',
+  player_added: 'Roster',
+  player_removed: 'Roster',
+};
+
+function formatEventTime(iso) {
+  if (!iso) return '';
+  // SQLite's datetime('now') is UTC without a zone suffix.
+  const date = new Date(`${String(iso).replace(' ', 'T')}${String(iso).includes('T') ? '' : 'Z'}`);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function HistoryTab({ id, isAdmin, refreshKey }) {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const data = await api.getTournamentHistory(id);
+      setEvents(data.events || []);
+      setError('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory, refreshKey]);
+
+  return (
+    <div className="card stack">
+      <div className="spread">
+        <div>
+          <h3>Match history &amp; audit log</h3>
+          <p className="muted small">Every recorded action on this tournament, newest first.</p>
+        </div>
+        {!isAdmin && <span className="muted small">Organizer identity is hidden</span>}
+      </div>
+
+      {error && <div className="alert alert-error">{error}</div>}
+      {loading && <Spinner />}
+
+      {!loading && !error && events.length === 0 && (
+        <p className="muted">No activity recorded yet.</p>
+      )}
+
+      {events.length > 0 && (
+        <ul className="event-list">
+          {events.map((e) => (
+            <li key={e.id} className="event-row">
+              <span className={`event-action action-${e.action}`}>
+                {ACTION_LABELS[e.action] || e.action}
+              </span>
+              <span className="event-summary">{e.summary || '—'}</span>
+              <span className="event-meta">
+                {e.round != null && <span className="tag">R{e.round}</span>}
+                {isAdmin && e.actor && <span className="event-actor">{e.actor}</span>}
+                <time className="muted small" dateTime={e.createdAt}>
+                  {formatEventTime(e.createdAt)}
+                </time>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function RoundsTab({ t, matches, playersMap, user, isAdmin, onApply, onGuard }) {
   const rounds = [...new Set(matches.map((m) => m.round))].sort((a, b) => a - b);

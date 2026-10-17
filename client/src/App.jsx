@@ -44,6 +44,7 @@ export default function App() {
         <Route path="/scan" element={<ScanDesk />} />
         <Route path="/users" element={<Protected adminOnly><Users /></Protected>} />
         <Route path="/profile" element={<Profile />} />
+        <Route path="/players/:id" element={<Profile />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
