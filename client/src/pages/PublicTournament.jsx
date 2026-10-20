@@ -4,6 +4,9 @@ import { api } from '../api.js';
 import Spinner from '../components/Spinner.jsx';
 import Bracket from '../components/Bracket.jsx';
 import StandingsTable from '../components/StandingsTable.jsx';
+import ChampionShowcase from '../components/ChampionShowcase.jsx';
+import MatchDetail from '../components/MatchDetail.jsx';
+import DeckArt from '../components/DeckArt.jsx';
 import { FORMAT_LABELS, STATUS_LABELS, statusClass } from '../format.js';
 
 const POLL_MS = 15000;
@@ -15,6 +18,7 @@ export default function PublicTournament() {
   const [error, setError] = useState('');
   const [updatedAt, setUpdatedAt] = useState(null);
   const timer = useRef(null);
+  const [selectedMatch, setSelectedMatch] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -58,6 +62,9 @@ export default function PublicTournament() {
   const isElim = t.format === 'single_elim' || t.format === 'double_elim';
   const playersMap = new Map(players.map((p) => [p.id, p]));
   const currentRoundMatches = matches.filter((m) => m.round === t.current_round && m.status !== 'void');
+  const activeMatch = selectedMatch
+    ? matches.find((m) => Number(m.id) === Number(selectedMatch.id)) || selectedMatch
+    : null;
 
   return (
     <div className="public-shell">
@@ -83,20 +90,19 @@ export default function PublicTournament() {
           {updatedAt && <p className="muted small">Live · updated {updatedAt.toLocaleTimeString()}</p>}
         </div>
 
-        {champion && (
-          <div className="champion-banner large">
-            <span>🏆</span>
-            <div>
-              <strong>Champion</strong>
-              <div>{champion.name}</div>
-            </div>
-          </div>
-        )}
+        <ChampionShowcase t={t} champion={champion} standings={standings} players={players} />
 
         {isElim ? (
           <div className="card">
             <h3>Bracket</h3>
-            <Bracket matches={matches} players={players} format={t.format} />
+            <Bracket
+              matches={matches}
+              players={players}
+              format={t.format}
+              currentRound={t.current_round}
+              onSelectMatch={setSelectedMatch}
+              champion={champion}
+            />
           </div>
         ) : (
           <>
@@ -105,7 +111,12 @@ export default function PublicTournament() {
                 <h3>Round {t.current_round} pairings</h3>
                 <div className="match-list">
                   {currentRoundMatches.map((m) => (
-                    <ReadonlyMatch key={m.id} match={m} playersMap={playersMap} />
+                    <ReadonlyMatch
+                      key={m.id}
+                      match={m}
+                      playersMap={playersMap}
+                      onSelect={() => setSelectedMatch(m)}
+                    />
                   ))}
                 </div>
               </div>
@@ -123,20 +134,51 @@ export default function PublicTournament() {
             {players
               .filter((p) => !p.is_bye)
               .map((p) => (
-                <span key={p.id} className={`pill ${p.dropped ? 'dropped' : ''}`}>
-                  {p.seed ? `${p.seed}. ` : ''}
-                  {p.name}
-                  {p.deck ? <em> · {p.deck}</em> : null}
+                <span key={p.id} className={`pill pill-player ${p.dropped ? 'dropped' : ''}`}>
+                  <DeckArt
+                    src={p.deck_art}
+                    alt={p.deck_featured || `${p.name}'s deck`}
+                    themeKey={p.card_theme}
+                    size="xs"
+                  />
+                  <span>
+                    <strong>{p.seed ? `${p.seed}. ` : ''}{p.name}</strong>
+                    {(p.deck_featured || p.deck) && <em> · {p.deck_featured || p.deck}</em>}
+                  </span>
                 </span>
               ))}
           </div>
         </div>
       </div>
+
+      {activeMatch && (
+        <MatchDetail
+          match={activeMatch}
+          playersMap={playersMap}
+          t={t}
+          isAdmin={false}
+          user={null}
+          readOnly
+          onClose={() => setSelectedMatch(null)}
+        />
+      )}
     </div>
   );
 }
 
-function ReadonlyMatch({ match, playersMap }) {
+function MatchStatus({ match }) {
+  if (Number(match.is_bye)) return <span className="tag tag-muted">bye</span>;
+  if (match.status === 'approved') {
+    if (match.is_draw) return <span className="tag tag-warn">draw</span>;
+    return <span className="tag tag-ok">final</span>;
+  }
+  if (match.status === 'disputed') return <span className="tag tag-warn">disputed</span>;
+  if (match.status === 'reported') return <span className="tag">awaiting approval</span>;
+  if (match.player1_id == null || match.player2_id == null) return <span className="tag tag-muted">pending</span>;
+  return <span className="tag">ready</span>;
+}
+
+function ReadonlyMatch({ match, playersMap, onSelect }) {
   const name = (id, byFlag) => (byFlag ? 'BYE' : id == null ? 'TBD' : playersMap.get(id)?.name || `#${id}`);
   const win1 = match.winner_id && Number(match.winner_id) === Number(match.player1_id);
   const win2 = match.winner_id && Number(match.winner_id) === Number(match.player2_id);

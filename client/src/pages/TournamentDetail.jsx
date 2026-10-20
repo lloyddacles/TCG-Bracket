@@ -1,15 +1,19 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import Bracket from '../components/Bracket.jsx';
+import MatchDetail from '../components/MatchDetail.jsx';
+import ChampionShowcase from '../components/ChampionShowcase.jsx';
+import DeckArt from '../components/DeckArt.jsx';
 import StandingsTable from '../components/StandingsTable.jsx';
 import ImportDialog from '../components/ImportDialog.jsx';
 import BulkBar, { RowCheck, SelectAllBox, useSelection } from '../components/bulk-ui.jsx';
 import { downloadCSV } from '../bulk.js';
 import { useLive } from '../live.js';
+import { playVictory } from '../preferences.js';
 import { FORMAT_LABELS, STATUS_LABELS, TIME_RULE_LABELS, statusClass, formatDate } from '../format.js';
 
 const TABS = ['Overview', 'Players', 'Seeding', 'Rounds', 'Bracket', 'Standings', 'History', 'Settings'];
@@ -24,6 +28,9 @@ export default function TournamentDetail() {
   const [tab, setTab] = useState('Overview');
   const [notice, setNotice] = useState('');
   const [syncedAt, setSyncedAt] = useState(null);
+  const [selectedMatch, setSelectedMatch] = useState(null);
+  const [highlightId, setHighlightId] = useState(null);
+  const seenStatuses = useRef(new Map());
 
   const load = useCallback(async () => {
     try {
@@ -65,6 +72,24 @@ export default function TournamentDetail() {
     window.setTimeout(() => setNotice(''), 2500);
   };
 
+  // Celebrate results that transition to approved while the page is open.
+  useEffect(() => {
+    if (!bundle?.matches) return undefined;
+    let resolved = null;
+    for (const m of bundle.matches) {
+      const prev = seenStatuses.current.get(Number(m.id));
+      if (m.status === 'approved' && prev && prev !== 'approved') resolved = m;
+      seenStatuses.current.set(Number(m.id), m.status);
+    }
+    if (!resolved) return undefined;
+    setHighlightId(resolved.id);
+    playVictory();
+    const winner = (bundle.players || []).find((p) => Number(p.id) === Number(resolved.winner_id));
+    if (winner) flash(`${winner.name} advances!`);
+    const timer = window.setTimeout(() => setHighlightId(null), 4500);
+    return () => window.clearTimeout(timer);
+  }, [bundle]);
+
   const playersMap = useMemo(() => {
     const m = new Map();
     for (const p of bundle?.players || []) m.set(p.id, p);
@@ -75,6 +100,9 @@ export default function TournamentDetail() {
   if (!bundle) return <div className="page"><div className="alert alert-error">{error || 'Not found'}</div></div>;
 
   const { tournament: t, game, players, matches, standings, champion } = bundle;
+  const activeMatch = selectedMatch
+    ? matches.find((m) => Number(m.id) === Number(selectedMatch.id)) || selectedMatch
+    : null;
   const myPlayer = players.find((p) => p.user_id === user.id);
   const isElim = t.format === 'single_elim' || t.format === 'double_elim';
   const tabs = isElim ? TABS : TABS.filter((x) => x !== 'Bracket');
@@ -123,6 +151,8 @@ export default function TournamentDetail() {
         <Overview
           t={t}
           champion={champion}
+          standings={standings}
+          players={players}
           myPlayer={myPlayer}
           isAdmin={isAdmin}
           onRegister={() =>
@@ -183,6 +213,16 @@ export default function TournamentDetail() {
               return r;
             })
           }
+          onReviewDeck={(playerId, status, note) =>
+            guard(async () => apply(await api.reviewDeck(t.id, playerId, status, note)))
+          }
+          onSubmitDeck={(playerId, deck) =>
+            guard(async () => {
+              await api.submitDeck(t.id, playerId, deck);
+              await load();
+              flash('Deck submitted for review');
+            })
+          }
         />
       )}
 
@@ -205,10 +245,21 @@ export default function TournamentDetail() {
           isAdmin={isAdmin}
           onApply={apply}
           onGuard={guard}
+          onOpenMatch={setSelectedMatch}
         />
       )}
 
-      {tab === 'Bracket' && <Bracket matches={matches} players={players} format={t.format} />}
+      {tab === 'Bracket' && (
+        <Bracket
+          matches={matches}
+          players={players}
+          format={t.format}
+          currentRound={t.current_round}
+          onSelectMatch={setSelectedMatch}
+          champion={champion}
+          highlightId={highlightId}
+        />
+      )}
 
       {tab === 'Standings' && (
         <div className="card">
@@ -226,16 +277,31 @@ export default function TournamentDetail() {
           <p className="muted">Only organizers can change settings.</p>
         )
       )}
+
+      {activeMatch && (
+        <MatchDetail
+          match={activeMatch}
+          playersMap={playersMap}
+          t={t}
+          isAdmin={isAdmin}
+          user={user}
+          onClose={() => setSelectedMatch(null)}
+          onApply={apply}
+          onError={setError}
+        />
+      )}
     </div>
   );
 }
 
 /* ------------------------------- Overview -------------------------------- */
 
-function Overview({ t, champion, myPlayer, isAdmin, playerCount, onRegister, onUnregister, onStart, onToggleRegistration, onDelete, onCopy }) {
+function Overview({ t, champion, standings, players, myPlayer, isAdmin, playerCount, onRegister, onUnregister, onStart, onToggleRegistration, onDelete, onCopy }) {
   const canStart = isAdmin && ['registration', 'draft'].includes(t.status);
   return (
-    <div className="grid-2">
+    <div className="stack">
+      <ChampionShowcase t={t} champion={champion} standings={standings} players={players} />
+      <div className="grid-2">
       <div className="card stack">
         <h3>Details</h3>
         {t.description && <p>{t.description}</p>}
@@ -258,15 +324,6 @@ function Overview({ t, champion, myPlayer, isAdmin, playerCount, onRegister, onU
           <dd>{formatDate(t.created_at)}</dd>
         </dl>
 
-        {champion && (
-          <div className="champion-banner">
-            <span>🏆</span>
-            <div>
-              <strong>Champion</strong>
-              <div>{champion.name}</div>
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="card stack">
@@ -320,19 +377,36 @@ function Overview({ t, champion, myPlayer, isAdmin, playerCount, onRegister, onU
           </button>
         )}
       </div>
+      </div>
     </div>
   );
 }
 
 /* -------------------------------- Players -------------------------------- */
 
-function PlayersTab({ t, players, myPlayer, user, isAdmin, onRegister, onUnregister, onAdd, onRemove, onBulkPlayers }) {
+function deckReviewText(status) {
+  if (status === 'approved') return 'approved';
+  if (status === 'rejected') return 'rejected';
+  if (status === 'pending') return 'pending';
+  return 'none';
+}
+
+function deckReviewTone(status) {
+  if (status === 'approved') return 'tag-ok';
+  if (status === 'rejected') return 'tag-warn';
+  if (status === 'pending') return 'tag';
+  return 'tag-muted';
+}
+
+function PlayersTab({ t, players, myPlayer, user, isAdmin, onRegister, onUnregister, onAdd, onRemove, onBulkPlayers, onReviewDeck, onSubmitDeck }) {
   const [addName, setAddName] = useState('');
   const [editing, setEditing] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [drafts, setDrafts] = useState({});
   const [busy, setBusy] = useState(false);
+  const [rejecting, setRejecting] = useState(null);
+  const [decking, setDecking] = useState(null);
   const selection = useSelection();
 
   const real = players.filter((p) => !p.is_bye);
@@ -362,7 +436,11 @@ function PlayersTab({ t, players, myPlayer, user, isAdmin, onRegister, onUnregis
     const q = query.trim().toLowerCase();
     if (!q) return real;
     return real.filter(
-      (p) => (p.name || '').toLowerCase().includes(q) || (p.deck || '').toLowerCase().includes(q)
+      (p) =>
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.deck || '').toLowerCase().includes(q) ||
+        (p.deck_featured || '').toLowerCase().includes(q) ||
+        (p.deck_nation || '').toLowerCase().includes(q)
     );
   }, [real, query]);
 
@@ -547,6 +625,7 @@ function PlayersTab({ t, players, myPlayer, user, isAdmin, onRegister, onUnregis
                 <th className="seed-col">Seed</th>
                 <th>Player</th>
                 <th>Deck / Nation</th>
+                <th>Deck review</th>
                 <th>Status</th>
                 <th />
               </tr>
@@ -575,13 +654,24 @@ function PlayersTab({ t, players, myPlayer, user, isAdmin, onRegister, onUnregis
                       )}
                     </td>
                     <td>
-                      {p.user_id ? (
-                        <Link className="player-link" to={`/players/${p.user_id}`}>
-                          {p.name}
-                        </Link>
-                      ) : (
-                        p.name
-                      )}
+                      <div className="player-cell">
+                        <DeckArt
+                          src={p.deck_art}
+                          alt={p.deck_featured || `${p.name}'s deck`}
+                          themeKey={p.card_theme}
+                          size="xs"
+                        />
+                        <span>
+                          {p.user_id ? (
+                            <Link className="player-link" to={`/players/${p.user_id}`}>
+                              {p.name}
+                            </Link>
+                          ) : (
+                            p.name
+                          )}
+                          {p.deck_featured && <em className="player-vanguard">{p.deck_featured}</em>}
+                        </span>
+                      </div>
                     </td>
                     <td>
                       {canEdit ? (
@@ -594,6 +684,42 @@ function PlayersTab({ t, players, myPlayer, user, isAdmin, onRegister, onUnregis
                       ) : (
                         p.deck || <span className="muted">—</span>
                       )}
+                    </td>
+                    <td>
+                      <div className="deck-review">
+                        <span className={`tag ${deckReviewTone(p.deck_status)}`}>
+                          {deckReviewText(p.deck_status)}
+                        </span>
+                        <div className="row-actions">
+                          {isAdmin && t.status !== 'completed' && (
+                            <>
+                              {p.deck_status !== 'approved' && (
+                                <button
+                                  className="btn btn-ghost btn-sm"
+                                  onClick={() => onReviewDeck(p.id, 'approved')}
+                                  disabled={!p.deck}
+                                >
+                                  Approve
+                                </button>
+                              )}
+                              {p.deck_status !== 'rejected' && (
+                                <button
+                                  className="btn btn-ghost btn-sm"
+                                  onClick={() => setRejecting(p)}
+                                  disabled={!p.deck}
+                                >
+                                  Reject
+                                </button>
+                              )}
+                            </>
+                          )}
+                          {p.user_id === user.id && ['registration', 'active'].includes(t.status) && (
+                            <button className="btn btn-ghost btn-sm" onClick={() => setDecking(p)}>
+                              Submit deck
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </td>
                     <td>
                       {draft.dropped === true || p.dropped ? (
@@ -635,6 +761,28 @@ function PlayersTab({ t, players, myPlayer, user, isAdmin, onRegister, onUnregis
         />
       )}
 
+      {rejecting && (
+        <RejectDeckModal
+          player={rejecting}
+          onClose={() => setRejecting(null)}
+          onSave={(note) => {
+            onReviewDeck(rejecting.id, 'rejected', note);
+            setRejecting(null);
+          }}
+        />
+      )}
+
+      {decking && (
+        <SubmitDeckModal
+          player={decking}
+          onClose={() => setDecking(null)}
+          onSave={(deck) => {
+            onSubmitDeck(decking.id, deck);
+            setDecking(null);
+          }}
+        />
+      )}
+
       {importOpen && (
         <ImportDialog
           title={`Import players — ${t.name}`}
@@ -645,6 +793,75 @@ function PlayersTab({ t, players, myPlayer, user, isAdmin, onRegister, onUnregis
         />
       )}
     </div>
+  );
+}
+
+function RejectDeckModal({ player, onClose, onSave }) {
+  const [note, setNote] = useState('');
+  return (
+    <Modal title={`Reject ${player.name}'s deck`} onClose={onClose}>
+      <div className="stack">
+        <label className="field">
+          <span>Reason for the player (optional)</span>
+          <textarea
+            rows={3}
+            maxLength={300}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Deck list is incomplete or does not match the registered nation…"
+          />
+        </label>
+        <div className="form-actions">
+          <button className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-danger" onClick={() => onSave(note || undefined)}>
+            Reject deck
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function SubmitDeckModal({ player, onClose, onSave }) {
+  const [deck, setDeck] = useState(player.deck || player.profile_deck_name || '');
+  return (
+    <Modal title={`Submit deck — ${player.name}`} onClose={onClose}>
+      <div className="stack">
+        {player.deck_featured && (
+          <div className="submit-deck-art">
+            <DeckArt src={player.deck_art} themeKey={player.card_theme} size="sm" featured={player.deck_featured} />
+            <div>
+              <strong>{player.deck_featured}</strong>
+              <p className="muted small">
+                Update your featured unit, nation and artwork on your profile.
+              </p>
+            </div>
+          </div>
+        )}
+        <label className="field">
+          <span>Deck name</span>
+          <input
+            value={deck}
+            maxLength={200}
+            onChange={(e) => setDeck(e.target.value)}
+            placeholder="e.g. Dragon Empire — Dragonic Overlord"
+          />
+        </label>
+        {player.deck_status === 'rejected' && player.deck_note && (
+          <div className="alert alert-error">Organizer note: {player.deck_note}</div>
+        )}
+        <div className="form-actions">
+          <button className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={() => onSave(deck)} disabled={!deck.trim()}>
+            Submit for review
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -829,6 +1046,8 @@ const ACTION_LABELS = {
   checked_in: 'Check-in',
   player_added: 'Roster',
   player_removed: 'Roster',
+  disputed: 'Disputed',
+  deck_reviewed: 'Deck review',
 };
 
 function formatEventTime(iso) {
@@ -905,7 +1124,7 @@ function HistoryTab({ id, isAdmin, refreshKey }) {
   );
 }
 
-function RoundsTab({ t, matches, playersMap, user, isAdmin, onApply, onGuard }) {
+function RoundsTab({ t, matches, playersMap, user, isAdmin, onApply, onGuard, onOpenMatch }) {
   const rounds = [...new Set(matches.map((m) => m.round))].sort((a, b) => a - b);
   const [round, setRound] = useState(t.current_round || rounds[0] || 1);
   const [scoreFor, setScoreFor] = useState(null);
@@ -1010,6 +1229,7 @@ function RoundsTab({ t, matches, playersMap, user, isAdmin, onApply, onGuard }) 
                     onSetResult={() => setScoreFor({ match: m, mode: 'admin' })}
                     onApprove={() => onGuard(async () => onApply(await api.approveMatch(m.id)))}
                     onReset={() => onGuard(async () => onApply(await api.resetMatch(m.id)))}
+                    onOpenMatch={() => onOpenMatch(m)}
                   />
                 ))}
             </div>
@@ -1157,7 +1377,7 @@ function bracketLabel(b) {
   return { main: 'Winners Bracket', losers: 'Losers Bracket', grand_final: 'Grand Final', swiss: 'Swiss', round_robin: 'Round Robin' }[b] || b;
 }
 
-function MatchRow({ match, playersMap, user, isAdmin, tournamentActive, onReport, onSetResult, onApprove, onReset }) {
+function MatchRow({ match, playersMap, user, isAdmin, tournamentActive, onReport, onSetResult, onApprove, onReset, onOpenMatch }) {
   const name = (id, byFlag) => (byFlag ? 'BYE' : id == null ? 'TBD' : playersMap.get(id)?.name || `#${id}`);
   const p1 = name(match.player1_id, match.player1_is_bye);
   const p2 = name(match.player2_id, match.player2_is_bye);
@@ -1207,6 +1427,11 @@ function MatchRow({ match, playersMap, user, isAdmin, tournamentActive, onReport
             </button>
           </>
         )}
+        {ready && (
+          <button className="btn btn-ghost btn-sm" onClick={onOpenMatch}>
+            Details
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1218,6 +1443,7 @@ function MatchStatus({ match }) {
     if (match.is_draw) return <span className="tag tag-warn">draw</span>;
     return <span className="tag tag-ok">final</span>;
   }
+  if (match.status === 'disputed') return <span className="tag tag-warn">disputed</span>;
   if (match.status === 'reported') return <span className="tag">awaiting approval</span>;
   if (match.status === 'void') return <span className="tag tag-muted">—</span>;
   if (match.status === 'waiting') return <span className="tag tag-muted">pending</span>;

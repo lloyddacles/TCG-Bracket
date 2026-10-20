@@ -4,6 +4,8 @@ import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { FORMAT_LABELS, STATUS_LABELS, statusClass } from '../format.js';
+import DeckArt, { PlayerAvatar } from '../components/DeckArt.jsx';
+import { imageFileToDataUrl } from '../images.js';
 
 function pct(part, whole) {
   if (!whole) return '—';
@@ -33,8 +35,14 @@ export default function Profile() {
 
   const [deckName, setDeckName] = useState('');
   const [deckList, setDeckList] = useState('');
+  const [deckFeatured, setDeckFeatured] = useState('');
+  const [deckNation, setDeckNation] = useState('');
+  const [deckPlaystyle, setDeckPlaystyle] = useState('');
+  const [deckArt, setDeckArt] = useState(null);
+  const [avatar, setAvatar] = useState(null);
   const [deckDirty, setDeckDirty] = useState(false);
   const [savingDeck, setSavingDeck] = useState(false);
+  const [artBusy, setArtBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,6 +51,11 @@ export default function Profile() {
       setProfile(data);
       setDeckName(data.user.deckName || '');
       setDeckList(data.user.deckList || '');
+      setDeckFeatured(data.user.deckFeatured || '');
+      setDeckNation(data.user.deckNation || '');
+      setDeckPlaystyle(data.user.deckPlaystyle || '');
+      setDeckArt(data.user.deckArt || null);
+      setAvatar(data.user.avatar || null);
       setDeckDirty(false);
     } catch (err) {
       setError(err.message);
@@ -55,16 +68,39 @@ export default function Profile() {
     load();
   }, [load]);
 
+  const uploadImage = async (file, kind) => {
+    setArtBusy(true);
+    setError('');
+    try {
+      const url = await imageFileToDataUrl(file, { maxSize: kind === 'avatar' ? 480 : 900 });
+      if (kind === 'avatar') setAvatar(url);
+      else setDeckArt(url);
+      setDeckDirty(true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setArtBusy(false);
+    }
+  };
+
   const saveDeck = async (e) => {
     e.preventDefault();
     setSavingDeck(true);
     setError('');
     setNotice('');
     try {
-      const res = await api.saveDeck({ deckName, deckList });
+      const res = await api.saveDeck({
+        deckName,
+        deckList,
+        deckFeatured,
+        deckNation,
+        deckPlaystyle,
+        deckArt: deckArt || null,
+        avatar: avatar || null,
+      });
       if (res.user) setUser(res.user);
       setDeckDirty(false);
-      setNotice('Deck saved.');
+      setNotice('Deck profile saved.');
       await load();
     } catch (err) {
       setError(err.message);
@@ -97,16 +133,28 @@ export default function Profile() {
       {error && <div className="alert alert-error">{error}</div>}
       {notice && <div className="alert alert-success">{notice}</div>}
 
-      <div className="card stack">
+      <div className="card stack profile-hero">
         <div className="profile-head">
-          <span className="user-avatar big">{(player.name || '?').charAt(0).toUpperCase()}</span>
-          <div>
+          <PlayerAvatar user={player} size="lg" />
+          <div className="profile-head-copy">
             <h2>{player.name}</h2>
             <p className="muted">
               @{player.username} · {player.role === 'admin' ? 'Tournament Organizer' : 'Player'}
             </p>
             {player.deckName && <p className="muted small">Signature deck: {player.deckName}</p>}
+            <div className="profile-chips">
+              {player.deckNation && <span className="chip">{player.deckNation}</span>}
+              {player.deckFeatured && <span className="chip">{player.deckFeatured}</span>}
+            </div>
           </div>
+          <DeckArt
+            src={player.deckArt}
+            alt={`${player.name}'s featured Vanguard`}
+            themeKey={player.cardTheme}
+            size="md"
+            featured={player.deckFeatured}
+            className="profile-hero-art"
+          />
         </div>
 
         <div className="stat-grid">
@@ -118,13 +166,147 @@ export default function Profile() {
         {totals.byes > 0 && <p className="muted small">Includes {totals.byes} bye(s).</p>}
       </div>
 
+      <div className="card stack achievements-card">
+        <div className="spread">
+          <h3>Achievements</h3>
+          <span className="muted small">{(profile.achievements || []).length} earned</span>
+        </div>
+        {(profile.achievements || []).length === 0 ? (
+          <p className="muted small">Win your first approved match to start earning achievements.</p>
+        ) : (
+          <div className="achievement-grid">
+            {(profile.achievements || []).map((a) => (
+              <div key={a.id} className={`achievement badge-${a.tier}`}>
+                <span className="achievement-icon">{a.icon}</span>
+                <div>
+                  <strong>{a.name}</strong>
+                  <p className="muted small">{a.description}</p>
+                  {a.progress && <span className="tag">{a.progress}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {isSelf && (
-        <div className="card stack">
-          <h3>Decklist</h3>
+        <div className="card stack deck-editor">
+          <h3>Deck profile</h3>
           <p className="muted small">
-            Your signature deck. It is saved to your account and shown on your profile.
+            Register your featured Vanguard unit, nation and deck. Uploaded artwork is resized automatically
+            and shown in the bracket and match view. Edits to an event deck are re-submitted for organizer
+            approval.
           </p>
           <form className="stack" onSubmit={saveDeck}>
+            <div className="deck-editor-art">
+              <div className="deck-editor-preview">
+                <DeckArt
+                  src={deckArt}
+                  alt="Deck artwork preview"
+                  themeKey={player.cardTheme}
+                  size="lg"
+                  featured={deckFeatured}
+                />
+                <div className="art-buttons">
+                  <label className="btn btn-ghost btn-sm file-button">
+                    {artBusy ? 'Processing…' : 'Upload artwork'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={artBusy}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) uploadImage(file, 'art');
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {deckArt && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => {
+                        setDeckArt(null);
+                        setDeckDirty(true);
+                      }}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="stack deck-editor-fields">
+                <label className="field">
+                  <span>Artwork URL (optional)</span>
+                  <input
+                    value={deckArt && !deckArt.startsWith('data:') ? deckArt : ''}
+                    placeholder="https://…"
+                    onChange={(e) => {
+                      setDeckArt(e.target.value.trim() || null);
+                      setDeckDirty(true);
+                    }}
+                  />
+                </label>
+                <label className="field">
+                  <span>Featured Vanguard unit</span>
+                  <input
+                    value={deckFeatured}
+                    maxLength={80}
+                    placeholder="e.g. Dragonic Overlord the End"
+                    onChange={(e) => {
+                      setDeckFeatured(e.target.value);
+                      setDeckDirty(true);
+                    }}
+                  />
+                </label>
+                <div className="grid-2">
+                  <label className="field">
+                    <span>Nation / collab</span>
+                    <input
+                      value={deckNation}
+                      maxLength={60}
+                      placeholder="e.g. Dragon Empire"
+                      onChange={(e) => {
+                        setDeckNation(e.target.value);
+                        setDeckDirty(true);
+                      }}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Profile image</span>
+                    <div className="avatar-upload">
+                      <PlayerAvatar user={{ name: player.name, avatar }} size="sm" />
+                      <label className="btn btn-ghost btn-sm file-button">
+                        Upload
+                        <input
+                          type="file"
+                          accept="image/*"
+                          disabled={artBusy}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) uploadImage(file, 'avatar');
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                      {avatar && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => {
+                            setAvatar(null);
+                            setDeckDirty(true);
+                          }}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
             <label className="field">
               <span>Deck name</span>
               <input
@@ -134,6 +316,19 @@ export default function Profile() {
                 placeholder="e.g. Dragon Empire Blademaster"
                 onChange={(e) => {
                   setDeckName(e.target.value);
+                  setDeckDirty(true);
+                }}
+              />
+            </label>
+            <label className="field">
+              <span>Playstyle</span>
+              <textarea
+                rows={3}
+                maxLength={600}
+                value={deckPlaystyle}
+                placeholder="Aggressive restanding vanguard with a explosive mid-game…"
+                onChange={(e) => {
+                  setDeckPlaystyle(e.target.value);
                   setDeckDirty(true);
                 }}
               />
@@ -150,17 +345,33 @@ export default function Profile() {
                 }}
               />
             </label>
-            <button className="btn btn-primary" disabled={savingDeck || !deckDirty}>
-              {savingDeck ? 'Saving…' : deckDirty ? 'Save deck' : 'Saved'}
+            <button className="btn btn-primary" disabled={savingDeck || !deckDirty || artBusy}>
+              {savingDeck ? 'Saving…' : deckDirty ? 'Save deck profile' : 'Saved'}
             </button>
           </form>
         </div>
       )}
 
-      {!isSelf && player.deckList && (
-        <div className="card stack">
-          <h3>Decklist{player.deckName ? ` — ${player.deckName}` : ''}</h3>
-          <pre className="deck-list">{player.deckList}</pre>
+      {!isSelf && (player.deckName || player.deckList || player.deckArt) && (
+        <div className="card stack deck-profile-card">
+          <div className="deck-profile-head">
+            <DeckArt
+              src={player.deckArt}
+              alt={`${player.name}'s featured Vanguard`}
+              themeKey={player.cardTheme}
+              size="md"
+              featured={player.deckFeatured}
+            />
+            <div>
+              <h3>{player.deckName || 'Deck profile'}</h3>
+              {player.deckFeatured && <p className="muted small">Featured unit: {player.deckFeatured}</p>}
+              <div className="profile-chips">
+                {player.deckNation && <span className="chip">{player.deckNation}</span>}
+              </div>
+              {player.deckPlaystyle && <p className="muted small">{player.deckPlaystyle}</p>}
+            </div>
+          </div>
+          {player.deckList && <pre className="deck-list">{player.deckList}</pre>}
         </div>
       )}
 

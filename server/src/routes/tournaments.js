@@ -13,6 +13,8 @@ import {
   updatePlayer,
   removePlayer,
   setSeeds,
+  setDeckStatus,
+  submitDeckForPlayer,
   getTournament,
 } from '../services/tournaments.js';
 import { startTournament, afterResolution, currentStandings } from '../services/engine.js';
@@ -226,6 +228,40 @@ router.put('/:id/players/:playerId', requireRole('admin'), async (req, res) => {
   if (!result.ok) return res.status(result.status).json({ error: result.error });
   emitChange(Number(req.params.id), 'player_updated');
   res.json(await getTournamentBundle(Number(req.params.id)));
+});
+
+// A player submits or updates their deck for this event.
+router.post('/:id/players/:playerId/deck-submit', async (req, res) => {
+  const id = Number(req.params.id);
+  const playerId = Number(req.params.playerId);
+  const result = await submitDeckForPlayer(id, playerId, req.user.id, req.body || {});
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  await logEvent({
+    tournamentId: id,
+    action: ACTIONS.DECK_REVIEWED,
+    actorId: req.user.id,
+    summary: `${req.user.name} submitted a deck for review`,
+    details: { playerId, deck: result.player.deck, status: 'pending' },
+  });
+  res.json({ ok: true, player: result.player });
+});
+
+// Organizer reviews a player's deck registration for this event.
+router.post('/:id/players/:playerId/deck', requireRole('admin'), async (req, res) => {
+  const id = Number(req.params.id);
+  const playerId = Number(req.params.playerId);
+  const { status, note } = req.body || {};
+  const result = await setDeckStatus(id, playerId, { status, note });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  const name = await playerName(playerId);
+  await logEvent({
+    tournamentId: id,
+    action: ACTIONS.DECK_REVIEWED,
+    actorId: req.user.id,
+    summary: `${name}'s deck ${status}${note ? ` — ${note}` : ''}`,
+    details: { playerId, status, note: note || null },
+  });
+  res.json(await getTournamentBundle(id));
 });
 
 router.delete('/:id/players/:playerId', requireRole('admin'), async (req, res) => {

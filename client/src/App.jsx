@@ -11,6 +11,7 @@ import PrintView from './pages/PrintView.jsx';
 import PublicTournament from './pages/PublicTournament.jsx';
 import Users from './pages/Users.jsx';
 import Profile from './pages/Profile.jsx';
+import Leaderboard from './pages/Leaderboard.jsx';
 import CardStudio from './pages/CardStudio.jsx';
 import ScanDesk from './pages/ScanDesk.jsx';
 
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="/card" element={<CardStudio />} />
         <Route path="/scan" element={<ScanDesk />} />
         <Route path="/users" element={<Protected adminOnly><Users /></Protected>} />
+        <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/players/:id" element={<Profile />} />
       </Route>

@@ -129,7 +129,10 @@ export async function deleteTournament(id) {
 
 export async function listPlayers(tournamentId) {
   return all(
-    `SELECT tp.*, u.name AS user_name, u.username
+    `SELECT tp.*, u.name AS user_name, u.username, u.avatar,
+            u.card_theme, u.card_title,
+            u.deck_name AS profile_deck_name, u.deck_list AS profile_deck_list,
+            u.deck_art, u.deck_featured, u.deck_nation, u.deck_playstyle
      FROM tournament_players tp
      JOIN users u ON u.id = tp.user_id
      WHERE tp.tournament_id = ?
@@ -165,6 +168,15 @@ export async function registerPlayer(tournamentId, userId) {
     'INSERT INTO tournament_players (tournament_id, user_id) VALUES (?, ?)',
     [tournamentId, userId]
   );
+  // Seed the event entry from the player's saved deck profile, if any.
+  const profile = await get('SELECT deck_name, deck_featured FROM users WHERE id = ?', [userId]);
+  const deck = profile?.deck_name || profile?.deck_featured || null;
+  if (deck) {
+    await run(
+      "UPDATE tournament_players SET deck = ?, deck_submitted_at = datetime('now') WHERE id = ?",
+      [deck, result.lastInsertRowid]
+    );
+  }
   return { ok: true, player: await get('SELECT * FROM tournament_players WHERE id = ?', [result.lastInsertRowid]) };
 }
 
@@ -223,6 +235,13 @@ export async function addPlayerByUsername(tournamentId, username) {
     tournamentId,
     user.id,
   ]);
+  const deck = user.deck_name || user.deck_featured || null;
+  if (deck) {
+    await run(
+      "UPDATE tournament_players SET deck = ?, deck_submitted_at = datetime('now') WHERE id = ?",
+      [deck, result.lastInsertRowid]
+    );
+  }
   return { ok: true, player: await get('SELECT * FROM tournament_players WHERE id = ?', [result.lastInsertRowid]) };
 }
 
@@ -234,6 +253,8 @@ export async function updatePlayer(playerId, data) {
   if (data.deck !== undefined) {
     fields.push('deck = ?');
     args.push(data.deck ? String(data.deck).trim() : null);
+    // Any deck change must be reviewed again by the organizer.
+    fields.push("deck_status = 'pending'", 'deck_note = NULL', "deck_submitted_at = datetime('now')");
   }
   if (data.displayName !== undefined) {
     fields.push('display_name = ?');
@@ -251,6 +272,52 @@ export async function updatePlayer(playerId, data) {
   args.push(playerId);
   await run(`UPDATE tournament_players SET ${fields.join(', ')} WHERE id = ?`, args);
   return { ok: true, player: await get('SELECT * FROM tournament_players WHERE id = ?', [playerId]) };
+}
+
+export async function submitDeckForPlayer(tournamentId, playerId, userId, { deck } = {}) {
+  const player = await get('SELECT * FROM tournament_players WHERE id = ? AND tournament_id = ?', [
+    playerId,
+    tournamentId,
+  ]);
+  if (!player) return { ok: false, status: 404, error: 'Player not found in this tournament' };
+  const t = await getTournament(tournamentId);
+  if (!t || !['registration', 'active'].includes(t.status)) {
+    return { ok: false, status: 400, error: 'Deck registration is closed' };
+  }
+  const isOwner = Number(player.user_id) === Number(userId);
+  if (!isOwner) return { ok: false, status: 403, error: 'You can only submit your own deck' };
+  const value = deck ? String(deck).trim().slice(0, 200) : null;
+  if (!value) return { ok: false, status: 400, error: 'Enter your deck name' };
+  await run(
+    `UPDATE tournament_players SET deck = ?, deck_status = 'pending', deck_note = NULL,
+       deck_submitted_at = datetime('now') WHERE id = ?`,
+    [value, playerId]
+  );
+  return { ok: true, player: await get('SELECT * FROM tournament_players WHERE id = ?', [playerId]) };
+}
+
+export async function setDeckStatus(tournamentId, playerId, { status, note } = {}) {
+  const allowed = ['pending', 'approved', 'rejected'];
+  if (!allowed.includes(status)) {
+    return { ok: false, status: 400, error: 'Deck status must be pending, approved or rejected' };
+  }
+  const player = await get('SELECT * FROM tournament_players WHERE id = ? AND tournament_id = ?', [
+    playerId,
+    tournamentId,
+  ]);
+  if (!player) return { ok: false, status: 404, error: 'Player not found in this tournament' };
+  if (status !== 'pending' && !player.deck) {
+    return { ok: false, status: 400, error: 'Player has not submitted a deck yet' };
+  }
+  await run('UPDATE tournament_players SET deck_status = ?, deck_note = ? WHERE id = ?', [
+    status,
+    note ? String(note).trim().slice(0, 300) : null,
+    playerId,
+  ]);
+  return {
+    ok: true,
+    player: await get('SELECT * FROM tournament_players WHERE id = ?', [playerId]),
+  };
 }
 
 export async function removePlayer(playerId) {

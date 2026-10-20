@@ -1,9 +1,32 @@
 import { get, all, run } from '../db.js';
 import { listPlayers } from './tournaments.js';
 import { computeStandings } from './standings.js';
+import { computeAchievements } from './achievements.js';
 
 const MAX_DECK_NAME = 80;
 const MAX_DECK_LIST = 6000;
+const MAX_FEATURED = 80;
+const MAX_NATION = 60;
+const MAX_PLAYSTYLE = 600;
+const MAX_DECK_ART = 2_600_000;
+const MAX_AVATAR = 900_000;
+
+function cleanImage(value, maxLength, label) {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (value === null) return { ok: true, value: null };
+  const text = String(value).trim();
+  if (!text) return { ok: true, value: null };
+  if (text.length > maxLength) {
+    return { ok: false, error: `${label} is too large. Try a smaller image.` };
+  }
+  if (/^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/i.test(text)) {
+    return { ok: true, value: text };
+  }
+  if (/^https?:\/\/\S+$/i.test(text) && text.length <= 2000) {
+    return { ok: true, value: text };
+  }
+  return { ok: false, error: `${label} must be an uploaded image or an http(s) image URL` };
+}
 
 // Cross-tournament player profile: aggregate record, per-tournament placement
 // and a recent match feed. Standings are recomputed per event so placements
@@ -133,36 +156,73 @@ export async function getPlayerProfile(userId, { matchLimit = 30 } = {}) {
   totals.matches = totals.wins + totals.losses + totals.draws;
   recent.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')) || b.matchId - a.matchId);
 
-  return {
-    user: {
-      id: user.id,
-      username: user.username,
-      name: user.name,
-      role: user.role,
-      cardTheme: user.card_theme || 'keter-sanctuary',
-      cardTitle: user.card_title || null,
-      deckName: user.deck_name || null,
-      deckList: user.deck_list || null,
-      createdAt: user.created_at,
-    },
+  const shapedUser = {
+    id: user.id,
+    username: user.username,
+    name: user.name,
+    role: user.role,
+    cardTheme: user.card_theme || 'keter-sanctuary',
+    cardTitle: user.card_title || null,
+    avatar: user.avatar || null,
+    deckName: user.deck_name || null,
+    deckList: user.deck_list || null,
+    deckArt: user.deck_art || null,
+    deckFeatured: user.deck_featured || null,
+    deckNation: user.deck_nation || null,
+    deckPlaystyle: user.deck_playstyle || null,
+    createdAt: user.created_at,
+  };
+
+  const profile = {
+    user: shapedUser,
     totals,
     history,
     matches: recent.slice(0, matchLimit),
     matchTotal: recent.length,
   };
+  profile.achievements = computeAchievements(profile);
+  return profile;
 }
 
-export async function updateDeck(userId, { deckName, deckList }) {
+function cleanText(value, maxLength) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const text = String(value).trim();
+  return text ? text.slice(0, maxLength) : null;
+}
+
+export async function updateDeck(
+  userId,
+  { deckName, deckList, deckFeatured, deckNation, deckPlaystyle, deckArt, avatar } = {}
+) {
+  const art = cleanImage(deckArt, MAX_DECK_ART, 'Deck artwork');
+  if (!art.ok) return { ok: false, status: 400, error: art.error };
+  const pic = cleanImage(avatar, MAX_AVATAR, 'Profile image');
+  if (!pic.ok) return { ok: false, status: 400, error: pic.error };
+
   const fields = [];
   const args = [];
-  if (deckName !== undefined) {
-    fields.push('deck_name = ?');
-    args.push(deckName ? String(deckName).trim().slice(0, MAX_DECK_NAME) : null);
+  const text = (column, value, max) => {
+    const clean = cleanText(value, max);
+    if (clean === undefined) return;
+    fields.push(`${column} = ?`);
+    args.push(clean);
+  };
+
+  text('deck_name', deckName, MAX_DECK_NAME);
+  text('deck_list', deckList, MAX_DECK_LIST);
+  text('deck_featured', deckFeatured, MAX_FEATURED);
+  text('deck_nation', deckNation, MAX_NATION);
+  text('deck_playstyle', deckPlaystyle, MAX_PLAYSTYLE);
+  if (art.value !== undefined) {
+    fields.push('deck_art = ?');
+    args.push(art.value);
   }
-  if (deckList !== undefined) {
-    fields.push('deck_list = ?');
-    args.push(deckList ? String(deckList).slice(0, MAX_DECK_LIST) : null);
+  if (pic.value !== undefined) {
+    fields.push('avatar = ?');
+    args.push(pic.value);
   }
+
   if (!fields.length) return { ok: true };
   args.push(Number(userId));
   await run(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, args);

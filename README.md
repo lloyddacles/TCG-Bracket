@@ -19,7 +19,12 @@ tournament instantly — no typing. Players can save or print their card.
 
 - **Client** — React 18 + Vite + React Router (+ `qrcode.react`, `html5-qrcode`, `html2canvas`)
 - **Server** — Node/Express (ESM) + SQLite via `@libsql/client`, JWT auth
-- **Tests** — `node --test` (pairing engines + full-tournament integration + QR check-in + bulk ops + audit/profile)
+- **Tests** — `node --test` (pairing engines + full-tournament integration + QR check-in + bulk ops + audit/profile + deck review, disputes and achievements)
+
+The interface uses a dark esports theme: interactive brackets with deck artwork, a match
+detail arena with victory/defeat states, champion showcase and podium, achievements, and an
+optional sound/animation toggle (sound is off by default). Animations respect
+`prefers-reduced-motion` and can be switched off from the top bar.
 
 ## Getting started
 
@@ -108,15 +113,56 @@ reset, seeds set, registration, check-in and roster edits.
 API: `GET /api/tournaments/:id/history`. Organizer identities are only included for admins;
 players see the same feed without the actor.
 
-## Player profiles & decklists
+## Player profiles, deck artwork & approvals
 
 Each player has a profile with aggregate stats (tournaments, match record, games, win rate,
-1st-place and podium finishes), full tournament history with placement, and a recent match
-feed. Players can save a **signature deck** (name + decklist) from their own profile, which
-is shown on their public profile.
+1st-place and podium finishes), full tournament history with placement, a recent match feed,
+and earned **achievements**. Players can save a **deck profile** from their own page:
 
-API: `GET /api/profile`, `GET /api/profile/:id`, `PUT /api/profile/deck`. Player names in
-standings, rosters and the players list link straight to the profile.
+- deck name and decklist
+- **featured Vanguard unit** and **nation / collab**
+- a short playstyle description
+- **deck artwork** and **profile image** — uploaded files are resized in the browser and
+  stored as data URLs (http(s) image URLs are also accepted)
+
+Artwork appears in the bracket, match detail panel, champion showcase and leaderboard.
+Missing or broken artwork always falls back to the player's card theme — never a random image.
+
+Per-event deck registration is separate from the saved profile. Registering copies the saved
+deck name; players can submit/update their event deck from the **Players** tab, and organizers
+approve or reject it (with an optional note). Any deck edit resets the entry to **pending**.
+
+API: `GET /api/profile`, `GET /api/profile/:id`, `PUT /api/profile/deck`,
+`POST /api/tournaments/:id/players/:playerId/deck-submit` (player) and
+`POST /api/tournaments/:id/players/:playerId/deck` (organizer review).
+
+### Disputes
+
+A participant can dispute a **reported** (not yet approved) result while the tournament is
+active. Organizers see the reason in the match detail panel and can approve a corrected
+result or clear it. Approving or clearing a dispute removes the dispute fields.
+
+API: `POST /api/matches/:id/dispute`.
+
+## Leaderboard & achievements
+
+The **Leaderboard** aggregates approved results across active and completed events, ranked by
+titles, then match win rate, then total wins. Achievements are derived from recorded match
+data only:
+
+- **First Victory**, **On a Roll** (3+ win streak), **Undefeated Run**
+- **Comeback Player**, **Tournament Champion**, **Podium Finish**
+- **Veteran** (5 events), **Sharp Shooter** (60%+ game win rate over 10+ games)
+
+API: `GET /api/profile/leaderboard`.
+
+## Interactive bracket
+
+Elimination brackets show status (upcoming, awaiting approval, completed, disputed, bye),
+current-round highlighting, deck art thumbnails, the champion strip, and an advance
+animation when a result is confirmed. Click any match for the full arena: both deck
+profiles, scores, match history, and organizer/participant actions. On small screens the
+bracket switches to a round picker.
 
 ## Bulk tools
 

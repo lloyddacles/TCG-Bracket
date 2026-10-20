@@ -1,9 +1,18 @@
+import { useEffect } from 'react';
 import { NavLink, Link, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
+import { PlayerAvatar } from './DeckArt.jsx';
+import { usePref } from '../preferences.js';
 
 export default function Layout() {
   const { user, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
+  const [sound, setSound] = usePref('sound', false);
+  const [effects, setEffects] = usePref('effects', true);
+
+  useEffect(() => {
+    document.documentElement.dataset.effects = effects ? 'on' : 'off';
+  }, [effects]);
 
   const onLogout = () => {
     logout();
@@ -21,14 +30,35 @@ export default function Layout() {
           <NavLink to="/" end>
             Tournaments
           </NavLink>
+          <NavLink to="/leaderboard">Leaderboard</NavLink>
           <NavLink to="/card">My Card</NavLink>
           <NavLink to="/scan">Scan Desk</NavLink>
           {isAdmin && <NavLink to="/tournaments/new">New</NavLink>}
           {isAdmin && <NavLink to="/users">Players</NavLink>}
         </nav>
         <div className="user-area">
+          <div className="pref-toggles" role="group" aria-label="Display preferences">
+            <button
+              type="button"
+              className={`icon-toggle ${sound ? "on" : ""}`}
+              aria-pressed={sound}
+              title={sound ? "Sound on" : "Sound off"}
+              onClick={() => setSound((v) => !v)}
+            >
+              {sound ? "🔊" : "🔇"}
+            </button>
+            <button
+              type="button"
+              className={`icon-toggle ${effects ? "on" : ""}`}
+              aria-pressed={effects}
+              title={effects ? "Animations on" : "Animations reduced"}
+              onClick={() => setEffects((v) => !v)}
+            >
+              ✨
+            </button>
+          </div>
           <Link to="/profile" className="user-chip" title="Your profile">
-            <span className="user-avatar">{(user?.name || '?').charAt(0).toUpperCase()}</span>
+            <PlayerAvatar user={user} size="sm" />
             <span className="user-meta">
               <strong>{user?.name}</strong>
               <em>{isAdmin ? 'Tournament Organizer' : 'Player'}</em>

@@ -67,8 +67,13 @@ const SCHEMA = `
     card_title TEXT,
     active INTEGER NOT NULL DEFAULT 1,
     must_change_password INTEGER NOT NULL DEFAULT 0,
+    avatar TEXT,
     deck_name TEXT,
     deck_list TEXT,
+    deck_art TEXT,
+    deck_featured TEXT,
+    deck_nation TEXT,
+    deck_playstyle TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -122,6 +127,9 @@ const SCHEMA = `
     dropped INTEGER NOT NULL DEFAULT 0,
     eliminated INTEGER NOT NULL DEFAULT 0,
     is_bye INTEGER NOT NULL DEFAULT 0,
+    deck_status TEXT NOT NULL DEFAULT 'pending',
+    deck_note TEXT,
+    deck_submitted_at TEXT,
     registered_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (tournament_id, user_id)
   );
@@ -154,6 +162,9 @@ const SCHEMA = `
     winner_to_slot INTEGER,
     loser_to_match INTEGER,
     loser_to_slot INTEGER,
+    dispute_reason TEXT,
+    disputed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    disputed_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (tournament_id, bracket, round, match_index)
   );
@@ -213,6 +224,17 @@ async function doInit() {
   await ensureColumn('users', 'card_title', 'card_title TEXT');
   await ensureColumn('users', 'deck_name', 'deck_name TEXT');
   await ensureColumn('users', 'deck_list', 'deck_list TEXT');
+  await ensureColumn('users', 'avatar', 'avatar TEXT');
+  await ensureColumn('users', 'deck_art', 'deck_art TEXT');
+  await ensureColumn('users', 'deck_featured', 'deck_featured TEXT');
+  await ensureColumn('users', 'deck_nation', 'deck_nation TEXT');
+  await ensureColumn('users', 'deck_playstyle', 'deck_playstyle TEXT');
+  await ensureColumn('tournament_players', 'deck_status', "deck_status TEXT NOT NULL DEFAULT 'pending'");
+  await ensureColumn('tournament_players', 'deck_note', 'deck_note TEXT');
+  await ensureColumn('tournament_players', 'deck_submitted_at', 'deck_submitted_at TEXT');
+  await ensureColumn('matches', 'dispute_reason', 'dispute_reason TEXT');
+  await ensureColumn('matches', 'disputed_by', 'disputed_by INTEGER');
+  await ensureColumn('matches', 'disputed_at', 'disputed_at TEXT');
 
   await migrateClanThemes();
 }

@@ -1,8 +1,15 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { getPlayerProfile, updateDeck } from '../services/profile.js';
+import { getLeaderboard } from '../services/achievements.js';
 
 const router = Router();
+
+// Cross-event leaderboard with earned achievements.
+router.get('/leaderboard', requireAuth, async (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 100, 200);
+  res.json({ leaderboard: await getLeaderboard({ limit }) });
+});
 
 // The signed-in player's own profile.
 router.get('/', requireAuth, async (req, res) => {
@@ -18,10 +25,10 @@ router.get('/:id', requireAuth, async (req, res) => {
   res.json(profile);
 });
 
-// Save the signed-in player's deck.
+// Save the signed-in player's deck profile and artwork.
 router.put('/deck', requireAuth, async (req, res) => {
-  const { deckName, deckList } = req.body || {};
-  await updateDeck(req.user.id, { deckName, deckList });
+  const result = await updateDeck(req.user.id, req.body || {});
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
   const profile = await getPlayerProfile(req.user.id, { matchLimit: 0 });
   res.json({ ok: true, user: profile.user });
 });

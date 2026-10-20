@@ -19,7 +19,7 @@ const allowedOrigins = (config.clientOrigin || '')
 
 const app = express();
 app.use(cors({ origin: allowedOrigins.length ? allowedOrigins : true }));
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '6mb' }));
 
 let ready = null;
 function bootstrap() {

@@ -300,7 +300,8 @@ async function finalizeMatch(tournament, match, winnerSlot, { draw = false, scor
 
   await run(
     `UPDATE matches SET status = 'approved', winner_id = ?, is_draw = ?, score1 = ?, score2 = ?,
-       approved_at = datetime('now') WHERE id = ?`,
+       approved_at = datetime('now'), dispute_reason = NULL, disputed_by = NULL, disputed_at = NULL
+     WHERE id = ?`,
     [winnerId, draw ? 1 : 0, scores.score1 ?? null, scores.score2 ?? null, match.id]
   );
 
@@ -383,6 +384,9 @@ export async function approveMatch(matchId, adminId, { score1, score2 } = {}) {
     return { ok: false, status: 400, error: 'This tournament is not active' };
   }
   if (match.status === 'approved') return { ok: false, status: 400, error: 'This match is already finalized' };
+  if (!['reported', 'disputed'].includes(match.status)) {
+    return { ok: false, status: 400, error: 'This match is not awaiting approval' };
+  }
   if (slotIsBye(match, 1) || slotIsBye(match, 2) || !slotDetermined(match, 1) || !slotDetermined(match, 2)) {
     return { ok: false, status: 400, error: 'This match is not ready to be finalized' };
   }
@@ -479,14 +483,49 @@ export async function setMatchResult(matchId, adminId, { score1, score2, winnerI
   return { ok: true };
 }
 
+export async function disputeMatch(matchId, userId, { reason } = {}) {
+  const match = await get('SELECT * FROM matches WHERE id = ?', [matchId]);
+  if (!match) return { ok: false, status: 404, error: 'Match not found' };
+  const tournament = await getTournament(match.tournament_id);
+  if (!tournament || tournament.status !== 'active') {
+    return { ok: false, status: 400, error: 'This tournament is not active' };
+  }
+  if (match.status !== 'reported') {
+    return { ok: false, status: 400, error: 'Only a reported result can be disputed' };
+  }
+  const players = await listPlayers(tournament.id);
+  const me = players.find((p) => Number(p.user_id) === Number(userId));
+  if (!me || (Number(me.id) !== Number(match.player1_id) && Number(me.id) !== Number(match.player2_id))) {
+    return { ok: false, status: 403, error: 'You are not a participant in this match' };
+  }
+  const note = reason ? String(reason).trim().slice(0, 300) : null;
+  await run(
+    "UPDATE matches SET status = 'disputed', dispute_reason = ?, disputed_by = ?, disputed_at = datetime('now') WHERE id = ?",
+    [note, userId, matchId]
+  );
+  const labels = await loadLabels([match.player1_id, match.player2_id]);
+  await logEvent({
+    tournamentId: tournament.id,
+    matchId,
+    round: match.round,
+    action: ACTIONS.DISPUTED,
+    actorId: userId,
+    summary: `Disputed ${labels.get(Number(match.player1_id)) || '—'} ${match.score1 ?? '–'}-${match.score2 ?? '–'} ${labels.get(Number(match.player2_id)) || '—'}${note ? ` — ${note}` : ''}`,
+    details: { reason: note, score1: match.score1, score2: match.score2 },
+  });
+  return { ok: true };
+}
+
 export async function resetReport(matchId, actorId = null) {
   const match = await get('SELECT * FROM matches WHERE id = ?', [matchId]);
   if (!match) return { ok: false, status: 404, error: 'Match not found' };
-  if (match.status !== 'reported') {
-    return { ok: false, status: 400, error: 'Only a reported (unapproved) result can be cleared' };
+  if (!['reported', 'disputed'].includes(match.status)) {
+    return { ok: false, status: 400, error: 'Only a reported or disputed result can be cleared' };
   }
   await run(
-    "UPDATE matches SET score1 = NULL, score2 = NULL, status = 'pending', reported_by = NULL, reported_at = NULL WHERE id = ?",
+    `UPDATE matches SET score1 = NULL, score2 = NULL, status = 'pending', reported_by = NULL,
+       reported_at = NULL, dispute_reason = NULL, disputed_by = NULL, disputed_at = NULL
+     WHERE id = ?`,
     [matchId]
   );
   const labels = await loadLabels([match.player1_id, match.player2_id]);

@@ -20,6 +20,8 @@ export const ACTIONS = {
   CHECKED_IN: 'checked_in',
   PLAYER_ADDED: 'player_added',
   PLAYER_REMOVED: 'player_removed',
+  DECK_REVIEWED: 'deck_reviewed',
+  DISPUTED: 'disputed',
 };
 
 async function resolveActorName(actorId, actorName) {

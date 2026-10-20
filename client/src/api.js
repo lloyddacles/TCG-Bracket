@@ -76,12 +76,18 @@ export const api = {
   bulkTournaments: (payload) => request('/tournaments/bulk', { method: 'POST', body: payload }),
   updatePlayer: (id, playerId, data) =>
     request(`/tournaments/${id}/players/${playerId}`, { method: 'PUT', body: data }),
+  submitDeck: (id, playerId, deck) =>
+    request(`/tournaments/${id}/players/${playerId}/deck-submit`, { method: 'POST', body: { deck } }),
+  reviewDeck: (id, playerId, status, note) =>
+    request(`/tournaments/${id}/players/${playerId}/deck`, { method: 'POST', body: { status, note } }),
   removePlayer: (id, playerId) => request(`/tournaments/${id}/players/${playerId}`, { method: 'DELETE' }),
 
   reportMatch: (matchId, data) => request(`/matches/${matchId}/report`, { method: 'POST', body: data }),
   approveMatch: (matchId, data = {}) => request(`/matches/${matchId}/approve`, { method: 'POST', body: data }),
   setMatchResult: (matchId, data) => request(`/matches/${matchId}/result`, { method: 'POST', body: data }),
   resetMatch: (matchId) => request(`/matches/${matchId}/reset`, { method: 'POST' }),
+  disputeMatch: (matchId, reason) =>
+    request(`/matches/${matchId}/dispute`, { method: 'POST', body: { reason } }),
 
   getUsers: () => request('/users'),
   createUser: (data) => request('/users', { method: 'POST', body: data }),
@@ -92,6 +98,7 @@ export const api = {
   getProfile: () => request('/profile'),
   getPlayerProfile: (id) => request(`/profile/${id}`),
   saveDeck: (data) => request('/profile/deck', { method: 'PUT', body: data }),
+  getLeaderboard: () => request('/profile/leaderboard'),
 
   publicTournament: (slug) => request(`/public/${slug}`, { auth: false }),
 };

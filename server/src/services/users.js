@@ -30,8 +30,13 @@ function publicUser(row) {
     qrToken: row.qr_token,
     cardTheme: row.card_theme || DEFAULT_CARD_THEME,
     cardTitle: row.card_title || null,
+    avatar: row.avatar || null,
     deckName: row.deck_name || null,
     deckList: row.deck_list || null,
+    deckArt: row.deck_art || null,
+    deckFeatured: row.deck_featured || null,
+    deckNation: row.deck_nation || null,
+    deckPlaystyle: row.deck_playstyle || null,
     createdAt: row.created_at,
   };
 }
