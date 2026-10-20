@@ -12,7 +12,7 @@ import { downloadCSV } from '../bulk.js';
 import { useLive } from '../live.js';
 import { FORMAT_LABELS, STATUS_LABELS, TIME_RULE_LABELS, statusClass, formatDate } from '../format.js';
 
-const TABS = ['Overview', 'Players', 'Rounds', 'Bracket', 'Standings', 'History', 'Settings'];
+const TABS = ['Overview', 'Players', 'Seeding', 'Rounds', 'Bracket', 'Standings', 'History', 'Settings'];
 
 export default function TournamentDetail() {
   const { id } = useParams();
@@ -338,6 +338,26 @@ function PlayersTab({ t, players, myPlayer, user, isAdmin, onRegister, onUnregis
   const real = players.filter((p) => !p.is_bye);
   const canEdit = isAdmin && t.status !== 'completed';
 
+  // Admins can pick an existing account instead of typing a username.
+  const [registeredUsers, setRegisteredUsers] = useState([]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    api
+      .getUsers()
+      .then((d) => setRegisteredUsers(d.users || []))
+      .catch(() => {});
+  }, [isAdmin]);
+
+  const inTournament = useMemo(() => new Set(real.map((p) => Number(p.user_id))), [real]);
+  const addableUsers = useMemo(
+    () =>
+      registeredUsers
+        .filter((u) => Number(u.active) !== 0 && !inTournament.has(Number(u.id)))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+    [registeredUsers, inTournament]
+  );
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return real;
@@ -374,7 +394,7 @@ function PlayersTab({ t, players, myPlayer, user, isAdmin, onRegister, onUnregis
   const IMPORT_COLUMNS = [
     { key: 'username', label: 'username', aliases: ['user'], required: true, example: 'player1' },
     { key: 'displayName', label: 'display_name', aliases: ['name', 'display'], example: '' },
-    { key: 'deck', label: 'deck', aliases: ['clan'], example: 'Kagero — Dragonic Overlord' },
+    { key: 'deck', label: 'deck', aliases: ['nation', 'collab'], example: 'Dragon Empire — Dragonic Overlord' },
     { key: 'seed', label: 'seed', example: '1' },
   ];
   const EXPORT_COLUMNS = [
@@ -427,17 +447,41 @@ function PlayersTab({ t, players, myPlayer, user, isAdmin, onRegister, onUnregis
       </div>
 
       {isAdmin && (t.status === 'registration' || t.status === 'active') && (
-        <form
-          className="inline-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (addName.trim()) onAdd(addName.trim());
-            setAddName('');
-          }}
-        >
-          <input value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Add by username" />
-          <button className="btn btn-ghost">Add player</button>
-        </form>
+        <div className="add-player">
+          <select
+            className="add-player-select"
+            value=""
+            disabled={addableUsers.length === 0}
+            onChange={(e) => {
+              const username = e.target.value;
+              if (username) onAdd(username);
+            }}
+          >
+            <option value="">
+              {addableUsers.length > 0
+                ? `Add a registered player… (${addableUsers.length} available)`
+                : real.length > 0
+                  ? 'All registered players are already in'
+                  : 'Add a registered player…'}
+            </option>
+            {addableUsers.map((u) => (
+              <option key={u.id} value={u.username}>
+                {u.name} (@{u.username}){u.role === 'admin' ? ' · organizer' : ''}
+              </option>
+            ))}
+          </select>
+          <form
+            className="inline-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (addName.trim()) onAdd(addName.trim());
+              setAddName('');
+            }}
+          >
+            <input value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="or add by username" />
+            <button className="btn btn-ghost">Add player</button>
+          </form>
+        </div>
       )}
 
       {real.length > 2 && (
@@ -502,7 +546,7 @@ function PlayersTab({ t, players, myPlayer, user, isAdmin, onRegister, onUnregis
                 </th>
                 <th className="seed-col">Seed</th>
                 <th>Player</th>
-                <th>Deck / Clan</th>
+                <th>Deck / Nation</th>
                 <th>Status</th>
                 <th />
               </tr>
@@ -615,8 +659,8 @@ function PlayerEditModal({ player, onClose, onSave }) {
           <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={player.user_name} />
         </label>
         <label className="field">
-          <span>Deck / Clan</span>
-          <input value={deck} onChange={(e) => setDeck(e.target.value)} placeholder="e.g. Kagero — Dragonic Overlord" />
+          <span>Deck / Nation</span>
+          <input value={deck} onChange={(e) => setDeck(e.target.value)} placeholder="e.g. Dragon Empire — Dragonic Overlord" />
         </label>
         <div className="form-actions">
           <button className="btn btn-ghost" onClick={onClose}>

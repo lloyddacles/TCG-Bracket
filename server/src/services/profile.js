@@ -139,7 +139,7 @@ export async function getPlayerProfile(userId, { matchLimit = 30 } = {}) {
       username: user.username,
       name: user.name,
       role: user.role,
-      cardTheme: user.card_theme || 'kagero',
+      cardTheme: user.card_theme || 'keter-sanctuary',
       cardTitle: user.card_title || null,
       deckName: user.deck_name || null,
       deckList: user.deck_list || null,

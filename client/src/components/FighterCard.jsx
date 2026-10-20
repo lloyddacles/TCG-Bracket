@@ -28,9 +28,15 @@ export default function FighterCard({ user, deck, size = 'full' }) {
           <span className="fc-emblem" aria-hidden="true">
             {theme.emblem}
           </span>
-          <div className="fc-clan">
-            <strong>{theme.label}</strong>
-            <em>{theme.tagline}</em>
+          <div className="fc-nation">
+            <strong>
+              {theme.label}
+              <span className="fc-code">{theme.code}</span>
+            </strong>
+            <em>
+              {theme.group === 'collab' ? 'Collab · ' : ''}
+              {theme.tagline}
+            </em>
           </div>
           <span className="fc-rank">FIGHTER</span>
         </header>

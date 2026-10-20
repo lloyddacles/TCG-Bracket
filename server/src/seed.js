@@ -21,18 +21,18 @@ const PLAYERS = [
 
 // Card theme, title and deck for each demo fighter (aligned with PLAYERS order).
 const DEMO_CARDS = [
-  { theme: 'royal-paladin', title: 'Rising Star', deck: 'Royal Paladin — Blaster Blade' },
-  { theme: 'kagero', title: 'Blazing Emperor', deck: 'Kagero — Dragonic Overlord' },
-  { theme: 'oracle-think-tank', title: 'Foreseer of Fate', deck: 'Oracle Think Tank — Tsukuyomi' },
-  { theme: 'narukami', title: 'Storm Fist', deck: 'Narukami — Thunder Break Dragon' },
-  { theme: 'shadow-paladin', title: 'Shadow Sovereign', deck: 'Shadow Paladin — Phantom Blaster Dragon' },
-  { theme: 'aqua-force', title: 'Tidal Commander', deck: 'Aqua Force — Maelstrom Dragon' },
-  { theme: 'dimension-police', title: 'Steel Justice', deck: 'Dimension Police — Ultimate Daiyusha' },
-  { theme: 'gold-paladin', title: 'Sunlit Legion', deck: 'Gold Paladin — Spectral Duke Dragon' },
-  { theme: 'granblue', title: 'Ghost Captain', deck: 'Granblue — Cocytus' },
-  { theme: 'gear-chronicle', title: 'Time Runner', deck: 'Gear Chronicle — Chronojet Dragon' },
-  { theme: 'oracle-think-tank', title: 'Celestial Strategist', deck: 'Oracle Think Tank — CEO Amaterasu' },
-  { theme: 'kagero', title: 'Crimson Tactician', deck: 'Kagero — Dragonic Kaiser Vermillion' },
+  { theme: 'keter-sanctuary', title: 'Rising Star', deck: 'Keter Sanctuary — Blaster Blade' },
+  { theme: 'dragon-empire', title: 'Blazing Emperor', deck: 'Dragon Empire — Dragonic Overlord' },
+  { theme: 'keter-sanctuary', title: 'Foreseer of Fate', deck: 'Keter Sanctuary — Tsukuyomi' },
+  { theme: 'dragon-empire', title: 'Storm Fist', deck: 'Dragon Empire — Thunder Break Dragon' },
+  { theme: 'dark-states', title: 'Shadow Sovereign', deck: 'Dark States — Phantom Blaster Dragon' },
+  { theme: 'stoicheia', title: 'Tidal Commander', deck: 'Stoicheia — Maelstrom Dragon' },
+  { theme: 'brandt-gate', title: 'Steel Justice', deck: 'Brandt Gate — Ultimate Daiyusha' },
+  { theme: 'lyrical-monasterio', title: 'Sunlit Legion', deck: 'Lyrical Monasterio — Spectral Duke' },
+  { theme: 'stoicheia', title: 'Ghost Captain', deck: 'Stoicheia — Cocytus' },
+  { theme: 'dark-states', title: 'Time Runner', deck: 'Dark States — Chronojet Dragon' },
+  { theme: 'buddyfight', title: 'Celestial Strategist', deck: 'Buddyfight — Drum Bunker Dragon' },
+  { theme: 'record-of-ragnarok', title: 'Crimson Tactician', deck: 'Record of Ragnarok — Adam' },
 ];
 
 const DEMO_PASSWORD = 'player123';

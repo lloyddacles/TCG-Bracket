@@ -131,7 +131,7 @@ export default function Profile() {
                 type="text"
                 value={deckName}
                 maxLength={80}
-                placeholder="e.g. Kagero Blademaster"
+                placeholder="e.g. Dragon Empire Blademaster"
                 onChange={(e) => {
                   setDeckName(e.target.value);
                   setDeckDirty(true);

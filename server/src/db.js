@@ -63,7 +63,7 @@ const SCHEMA = `
     name TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'player',
     qr_token TEXT UNIQUE,
-    card_theme TEXT NOT NULL DEFAULT 'kagero',
+    card_theme TEXT NOT NULL DEFAULT 'keter-sanctuary',
     card_title TEXT,
     active INTEGER NOT NULL DEFAULT 1,
     must_change_password INTEGER NOT NULL DEFAULT 0,
@@ -209,8 +209,35 @@ async function doInit() {
   await ensureColumn('tournaments', 'total_rounds', 'total_rounds INTEGER');
   await ensureColumn('tournament_players', 'is_bye', 'is_bye INTEGER NOT NULL DEFAULT 0');
   await ensureColumn('users', 'qr_token', 'qr_token TEXT');
-  await ensureColumn('users', 'card_theme', "card_theme TEXT NOT NULL DEFAULT 'kagero'");
+  await ensureColumn('users', 'card_theme', "card_theme TEXT NOT NULL DEFAULT 'keter-sanctuary'");
   await ensureColumn('users', 'card_title', 'card_title TEXT');
   await ensureColumn('users', 'deck_name', 'deck_name TEXT');
   await ensureColumn('users', 'deck_list', 'deck_list TEXT');
+
+  await migrateClanThemes();
+}
+
+// The card themes moved from Vanguard clans to nations/collabs. Remap any
+// legacy clan values so existing cards keep a sensible look. Idempotent.
+const LEGACY_THEME_MAP = {
+  kagero: 'dragon-empire',
+  narukami: 'dragon-empire',
+  'royal-paladin': 'keter-sanctuary',
+  'gold-paladin': 'keter-sanctuary',
+  'oracle-think-tank': 'keter-sanctuary',
+  'shadow-paladin': 'dark-states',
+  'gear-chronicle': 'dark-states',
+  'dimension-police': 'brandt-gate',
+  granblue: 'stoicheia',
+  'aqua-force': 'stoicheia',
+};
+
+async function migrateClanThemes() {
+  const keys = Object.keys(LEGACY_THEME_MAP);
+  const placeholders = keys.map(() => '?').join(', ');
+  const rows = await all(`SELECT id, card_theme FROM users WHERE card_theme IN (${placeholders})`, keys);
+  for (const row of rows) {
+    const next = LEGACY_THEME_MAP[row.card_theme];
+    if (next) await run('UPDATE users SET card_theme = ? WHERE id = ?', [next, row.id]);
+  }
 }

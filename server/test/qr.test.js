@@ -32,14 +32,14 @@ test('every new account gets a unique fighter QR token', async () => {
 
 test('fighters can customize their card theme and title', async () => {
   const u = await makeUser();
-  assert.equal(u.cardTheme, 'kagero');
+  assert.equal(u.cardTheme, 'keter-sanctuary');
 
-  const ok = await users.updateCard(u.id, { theme: 'narukami', title: 'Thunder Emperor' });
+  const ok = await users.updateCard(u.id, { theme: 'dragon-empire', title: 'Thunder Emperor' });
   assert.equal(ok.ok, true);
-  assert.equal(ok.user.cardTheme, 'narukami');
+  assert.equal(ok.user.cardTheme, 'dragon-empire');
   assert.equal(ok.user.cardTitle, 'Thunder Emperor');
 
-  const bad = await users.updateCard(u.id, { theme: 'not-a-clan' });
+  const bad = await users.updateCard(u.id, { theme: 'not-a-nation' });
   assert.equal(bad.ok, false);
   assert.equal(bad.status, 400);
 });
@@ -53,11 +53,11 @@ test('scanning a fighter card registers that player to a tournament', async () =
   );
   const tid = created.tournament.id;
 
-  const result = await tournaments.registerByQr(tid, player.qrToken, { deck: 'Kagero — Dragonic Overlord' });
+  const result = await tournaments.registerByQr(tid, player.qrToken, { deck: 'Dragon Empire — Dragonic Overlord' });
   assert.equal(result.ok, true);
   assert.equal(result.alreadyIn, false);
   assert.equal(result.player.user_id, player.id);
-  assert.equal(result.player.deck, 'Kagero — Dragonic Overlord');
+  assert.equal(result.player.deck, 'Dragon Empire — Dragonic Overlord');
 
   const second = await tournaments.registerByQr(tid, player.qrToken);
   assert.equal(second.ok, true);

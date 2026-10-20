@@ -11,7 +11,7 @@ A tournament bracket web app for trading card games. Start with **Cardfight Vang
 Players register, submit their own match results, and the organizer approves them.
 Each tournament also has a shareable, read-only public bracket link.
 
-Every player also gets a **personal QR "Fighter ID" card** with 10 clan themes. The
+Every player also gets a **personal QR "Fighter ID" card** with 15 nation & collab themes. The
 organizer opens the **Scan desk**, scans the card, and the player is checked into a
 tournament instantly — no typing. Players can save or print their card.
 
@@ -58,7 +58,7 @@ Demo player logins: `player1` … `player12` / `player123`
 ## QR check-in
 
 Each account has a short `qr_token`. The **My Card** page renders it as a themed
-fighter card (clan frame, emblem, title, fighter serial) and can export a PNG or print.
+fighter card (nation or collab frame, code, emblem, title, fighter serial) and can export a PNG or print.
 
 - **Organizer** — open **Scan desk**, pick a tournament, start the camera and scan a
   card. The player is registered (with their deck) and a scan feed records the result.
@@ -68,6 +68,12 @@ fighter card (clan frame, emblem, title, fighter serial) and can export a PNG or
 
 The QR payload is `TCGBRACKET:<qr_token>`. API: `PUT /api/auth/card`,
 `POST /api/tournaments/:id/scan`.
+
+Card themes are grouped into **Nations** — Keter Sanctuary (KS), Dragon Empire (DE),
+Stoicheia (ST), Brandt Gate (BG), Dark States (DS), Lyrical Monasterio (LM) — and
+**Collabs** — Buddyfight (BF), Quintessential Quintuplets (QQ), Frieren Journey Ends (FJE),
+Shaman King (SK), Touken Ranbu (TR), BanG Dream! (BD), Corocoro (CC), Persona (P),
+Record of Ragnarok (ROR).
 
 ## Live updates
 
@@ -150,5 +156,5 @@ client/
     components/     layout, bracket, standings, modals, fighter QR card, bulk UI
     bulk.js         CSV parse/serialize/download helpers
     live.js         fetch-based SSE hook (fallback polling)
-    card-themes.js  clan frame themes for the QR fighter cards
+    card-themes.js  nation & collab frame themes for the QR fighter cards
 ```

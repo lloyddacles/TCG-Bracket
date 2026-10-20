@@ -186,16 +186,16 @@ test('profile aggregates placements, record, match feed and deck', async () => {
 test('decklist saves to the account and is clamped to safe sizes', async () => {
   const user = await makeUser('player');
   await profile.updateDeck(user.id, {
-    deckName: '  Kagero Blademaster  ',
+    deckName: '  Dragon Empire Blademaster  ',
     deckList: `4x Dragonic Overlord\n${'x'.repeat(10000)}`,
   });
 
   const fresh = await getUser(user.id);
-  assert.equal(fresh.deckName, 'Kagero Blademaster');
+  assert.equal(fresh.deckName, 'Dragon Empire Blademaster');
   assert.equal(fresh.deckList.length, 6000, 'decklist is clamped');
 
   const p = await profile.getPlayerProfile(user.id);
-  assert.equal(p.user.deckName, 'Kagero Blademaster');
+  assert.equal(p.user.deckName, 'Dragon Empire Blademaster');
 
   await profile.updateDeck(user.id, { deckName: null, deckList: null });
   const cleared = await getUser(user.id);

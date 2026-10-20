@@ -2,18 +2,18 @@ import { useMemo, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import FighterCard from '../components/FighterCard.jsx';
-import { CARD_THEMES, CARD_THEME_ORDER, getTheme } from '../card-themes.js';
+import { THEME_GROUPS, DEFAULT_THEME, getTheme } from '../card-themes.js';
 
 export default function CardStudio() {
   const { user, setUser } = useAuth();
-  const [theme, setTheme] = useState(user?.cardTheme || 'kagero');
+  const [theme, setTheme] = useState(user?.cardTheme || DEFAULT_THEME);
   const [title, setTitle] = useState(user?.cardTitle || '');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const cardRef = useRef(null);
 
-  const dirty = theme !== (user?.cardTheme || 'kagero') || title !== (user?.cardTitle || '');
+  const dirty = theme !== (user?.cardTheme || DEFAULT_THEME) || title !== (user?.cardTitle || '');
   const previewUser = useMemo(
     () => ({ ...user, cardTheme: theme, cardTitle: title }),
     [user, theme, title]
@@ -81,29 +81,43 @@ export default function CardStudio() {
 
         <div className="stack no-print">
           <div className="card stack">
-            <h3>Choose your clan theme</h3>
-            <p className="muted">Ten themed frames. Pick the one that matches your deck and reputation.</p>
-            <div className="theme-grid">
-              {CARD_THEME_ORDER.map((key) => {
-                const t = getTheme(key);
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    className={`theme-swatch${theme === key ? ' active' : ''}`}
-                    style={{ background: t.frame }}
-                    onClick={() => setTheme(key)}
-                    aria-pressed={theme === key}
-                  >
-                    <span className="emblem" aria-hidden="true">
-                      {t.emblem}
-                    </span>
-                    <strong>{t.label}</strong>
-                    <em>{t.tagline}</em>
-                  </button>
-                );
-              })}
-            </div>
+            <h3>Choose your nation or collab theme</h3>
+            <p className="muted">
+              Fifteen themed frames — the six Vanguard nations plus collaboration sets. Pick the one that matches
+              your deck and reputation.
+            </p>
+            {THEME_GROUPS.map((group) => (
+              <div key={group.id} className="theme-group">
+                <h4 className="theme-group-title">
+                  {group.label}
+                  <span className="muted small">{group.keys.length}</span>
+                </h4>
+                <div className="theme-grid">
+                  {group.keys.map((key) => {
+                    const t = getTheme(key);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        className={`theme-swatch${theme === key ? ' active' : ''}`}
+                        style={{ background: t.frame }}
+                        onClick={() => setTheme(key)}
+                        aria-pressed={theme === key}
+                      >
+                        <span className="emblem" aria-hidden="true">
+                          {t.emblem}
+                        </span>
+                        <strong>
+                          {t.label}
+                          <span className="theme-code">{t.code}</span>
+                        </strong>
+                        <em>{t.tagline}</em>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
 
           <div className="card stack">

@@ -66,14 +66,14 @@ test('bulkTournamentPlayers adds, updates and removes a roster', async () => {
 
   const added = await bulk.bulkTournamentPlayers(tid, {
     add: [
-      { username: p1.username, deck: 'Kagero', seed: 1 },
+      { username: p1.username, deck: 'Dragon Empire', seed: 1 },
       { username: p2.username, deck: 'Royal Paladin' },
     ],
   });
   assert.equal(added.summary.added, 2);
   assert.equal(added.bundle.players.length, 2);
   const p1Player = added.bundle.players.find((p) => p.user_id === p1.id);
-  assert.equal(p1Player.deck, 'Kagero');
+  assert.equal(p1Player.deck, 'Dragon Empire');
 
   const upd = await bulk.bulkTournamentPlayers(tid, {
     update: [{ id: p2PlayerId(added, p2), deck: 'Aqua Force' }],

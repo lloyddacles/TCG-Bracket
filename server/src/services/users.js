@@ -28,7 +28,7 @@ function publicUser(row) {
     active: Number(row.active),
     mustChangePassword: Number(row.must_change_password),
     qrToken: row.qr_token,
-    cardTheme: row.card_theme || 'kagero',
+    cardTheme: row.card_theme || DEFAULT_CARD_THEME,
     cardTitle: row.card_title || null,
     deckName: row.deck_name || null,
     deckList: row.deck_list || null,
@@ -62,17 +62,26 @@ export async function getUserByQrToken(token) {
   return row ? publicUser(row) : null;
 }
 
-const CARD_THEMES = [
-  'kagero',
-  'royal-paladin',
-  'oracle-think-tank',
-  'dimension-police',
-  'granblue',
-  'narukami',
-  'gold-paladin',
-  'shadow-paladin',
-  'gear-chronicle',
-  'aqua-force',
+export const DEFAULT_CARD_THEME = 'keter-sanctuary';
+
+export const CARD_THEMES = [
+  // Nations
+  'keter-sanctuary',
+  'dragon-empire',
+  'stoicheia',
+  'brandt-gate',
+  'dark-states',
+  'lyrical-monasterio',
+  // Collabs
+  'buddyfight',
+  'quintessential-quintuplets',
+  'frieren-journey-ends',
+  'shaman-king',
+  'touken-ranbu',
+  'bang-dream',
+  'corocoro',
+  'persona',
+  'record-of-ragnarok',
 ];
 
 export async function updateCard(id, { theme, title }) {
